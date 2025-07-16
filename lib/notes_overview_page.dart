@@ -4,19 +4,22 @@ import 'note.dart';       // Import der Note-Klasse aus note.dart
 import 'form_page.dart';
 import 'api_service.dart';
 import 'dart:async';
+
 // für Datumsausgabe
 
 class NotesOverviewPage extends StatefulWidget {
   final ApiService apiService;
 
-  const NotesOverviewPage({Key? key, required this.apiService}) : super(key: key);
+  const NotesOverviewPage({super.key, required this.apiService});
 
   @override
   _NotesOverviewPageState createState() => _NotesOverviewPageState();
 }
 
 class _NotesOverviewPageState extends State<NotesOverviewPage> {
+  late final ApiService apiService;
   List<Note> allNotes = [];
+  bool isLoading = true;
 
   // Filter-States
   String _searchText = "";
@@ -24,52 +27,83 @@ class _NotesOverviewPageState extends State<NotesOverviewPage> {
   DateTimeRange? _selectedDateRange;
   List<String> _selectedLabelsFilter = [];
 
-  late ApiService apiService;
-  bool isLoading = true;
+  
 
+  @override
+  void initState() {
+    super.initState();
+    apiService = widget.apiService;
+    _loadNotes();
+    _setupWebSocket();
+  }
 
-@override
-void initState() {
-  super.initState();
-  apiService = widget.apiService; // <-- NICHT neu erzeugen, sondern den übergebenen verwenden
-  _loadNotes();
-  _setupWebSocket();
-}
-
-void _setupWebSocket() {
+  void _setupWebSocket() {
   apiService.connectToWebSocket(
     onEvent: (data) {
-      final event = data['event'];
-      final id = data['id'];
-      print('📥 WebSocket Event: $event | ID: $id');
-
-      // Optional: Nur aktualisieren, wenn sinnvoll (könntest auch differenziert nachladen)
-      _loadNotes();
+      unawaited(_handleWebSocketEvent(data));
     },
-    onError: (error) {
-      print('❌ WebSocket Fehler: $error');
-    },
+    onError: (error) => debugPrint('❌ WebSocket Fehler: $error'),
   );
 }
 
-@override
-void dispose() {
-  apiService.disconnectWebSocket();
-  super.dispose();
+Future<void> _handleWebSocketEvent(dynamic data) async {
+  try {
+    final String event = data['event'];
+    final String? noteId = data['id']?.toString();
+
+    if (!mounted || noteId == null) return;
+
+    switch (event) {
+      case 'note_updated':
+        final updatedNote = await apiService.fetchNoteById(noteId);
+        if (updatedNote == null) return;
+        if (!mounted) return;
+        setState(() {
+          final index = allNotes.indexWhere((n) => n.id == updatedNote.id);
+          if (index != -1) {
+            allNotes[index] = updatedNote;
+          } else {
+            allNotes.add(updatedNote);
+          }
+        });
+        break;
+
+      case 'note_deleted':
+        if (!mounted) return;
+        setState(() {
+          allNotes.removeWhere((n) => n.id == noteId);
+        });
+        break;
+
+      case 'note_created':
+        final newNote = await apiService.fetchNoteById(noteId);
+        if (newNote == null || !mounted) return;
+        setState(() {
+          allNotes.add(newNote);
+        });
+        break;
+    }
+  } catch (e, stack) {
+    debugPrint('❌ Fehler im WebSocket-Eventhandler: $e');
+    debugPrint('$stack'); // Zeigt dir, wo der Fehler auftrat
+  }
 }
 
+
   Future<void> _loadNotes() async {
+    if (!mounted) return;
+    setState(() => isLoading = true);
     try {
       final notes = await apiService.fetchNotes();
+      if (!mounted) return;
       setState(() {
         allNotes = notes;
         isLoading = false;
       });
     } catch (e) {
-      print('Fehler beim Laden der Notizen: $e');
-      setState(() {
-        isLoading = false;
-      });
+      if (!mounted) return;
+      setState(() => isLoading = false);
+      debugPrint('Fehler laden (Übersicht): $e');
     }
   }
 

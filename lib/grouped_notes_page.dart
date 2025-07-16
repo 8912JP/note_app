@@ -3,237 +3,319 @@ import 'package:intl/intl.dart';
 import 'note.dart';
 import 'form_page.dart';
 import 'api_service.dart';
-import 'dart:async';
 
 class GroupedNotesPage extends StatefulWidget {
-  const GroupedNotesPage({super.key});
+  final ApiService apiService;
+  const GroupedNotesPage({super.key, required this.apiService});
 
   @override
   _GroupedNotesPageState createState() => _GroupedNotesPageState();
 }
 
 class _GroupedNotesPageState extends State<GroupedNotesPage> {
+  late ApiService apiService;
   List<List<Note>> groupedNotes = [];
+  Map<String, bool> expansionState = {};
 
   String _searchText = "";
   String _selectedStatus = "all";
   DateTimeRange? _selectedDateRange;
   List<String> _selectedLabelsFilter = [];
 
-  late ApiService apiService;
-  bool isLoading = true;
-
   @override
   void initState() {
     super.initState();
-    apiService = ApiService();
+    apiService = widget.apiService;
     _loadNotes();
     _setupWebSocket();
   }
 
   void _setupWebSocket() {
-    apiService.connectToWebSocket(
-      onEvent: (data) {
-        if (!mounted) return;
-        _loadNotes();
-      },
-      onError: (error) {
-        print('❌ WebSocket Fehler: $error');
-      },
-    );
-  }
+    apiService.connectToWebSocket(onEvent: (data) async {
+      if (!mounted) return;
 
-  @override
-  void dispose() {
-    apiService.disconnectWebSocket();
-    super.dispose();
+      final id = data['id']?.toString();
+      switch (data['event']) {
+        case 'note_updated':
+        case 'note_created':
+          if (id == null) return;
+          final updated = await apiService.fetchNoteById(id);
+          if (updated != null) _updateOrInsertNote(updated);
+          break;
+        case 'note_deleted':
+          if (id == null) return;
+          _removeNoteById(id);
+          break;
+      }
+    });
   }
 
   Future<void> _loadNotes() async {
-    if (!mounted) return;
-    setState(() => isLoading = true);
     try {
       final notes = await apiService.fetchGroupedNotes();
       if (!mounted) return;
       setState(() {
         groupedNotes = notes;
-        isLoading = false;
+        // Reset expansion state
+        expansionState = {
+          for (var g in notes) _groupKey(g.first): expansionState[_groupKey(g.first)] ?? false,
+        };
       });
     } catch (e) {
-      print('Fehler beim Laden der Notizen: $e');
-      if (!mounted) return;
-      setState(() => isLoading = false);
+      debugPrint('Fehler beim Laden: $e');
     }
   }
 
+  String _groupKey(Note note) =>
+      '${note.firstName}_${note.lastName}_${note.email}_${note.telephone}';
+
+  void _updateOrInsertNote(Note note) {
+    setState(() {
+      _removeNoteById(note.id.toString(), updateOnly: true);
+      final key = _groupKey(note);
+      var group = groupedNotes.firstWhere(
+        (g) => _groupKey(g.first) == key,
+        orElse: () {
+          groupedNotes.add([note]);
+          expansionState[key] = true;
+          return [note];
+        },
+      );
+      if (!group.contains(note)) group.add(note);
+    });
+  }
+
+  void _removeNoteById(String id, {bool updateOnly = false}) {
+    setState(() {
+      for (var group in groupedNotes) {
+        group.removeWhere((note) => note.id.toString() == id);
+      }
+      groupedNotes.removeWhere((group) => group.isEmpty);
+      if (!updateOnly) {
+        expansionState.removeWhere(
+          (key, _) => !groupedNotes.any((group) => _groupKey(group.first) == key),
+        );
+      }
+    });
+  }
+
   bool _applyFilters(Note note) {
-    final searchLower = _searchText.toLowerCase();
-    if (searchLower.isNotEmpty) {
-      final haystack =
-          "${note.noteText} ${note.firstName} ${note.lastName}".toLowerCase();
-      if (!haystack.contains(searchLower)) return false;
-    }
-    if (_selectedLabelsFilter.isNotEmpty) {
-      bool labelMatch =
-          note.labels.any((label) => _selectedLabelsFilter.contains(label));
-      if (!labelMatch) return false;
+    final text = "${note.firstName} ${note.lastName} ${note.noteText}".toLowerCase();
+    if (_searchText.isNotEmpty && !text.contains(_searchText.toLowerCase())) return false;
+    if (_selectedLabelsFilter.isNotEmpty &&
+        !note.labels.any((l) => _selectedLabelsFilter.contains(l))) {
+      return false;
     }
     if (_selectedStatus == "done" && !note.isDone) return false;
     if (_selectedStatus == "not_done" && note.isDone) return false;
-    if (_selectedDateRange != null) {
-      if (note.createdAt.isBefore(_selectedDateRange!.start) ||
-          note.createdAt.isAfter(_selectedDateRange!.end)) {
-        return false;
-      }
+    if (_selectedDateRange != null &&
+        (note.createdAt.isBefore(_selectedDateRange!.start) ||
+            note.createdAt.isAfter(_selectedDateRange!.end))) {
+      return false;
     }
     return true;
   }
 
-  void _toggleDone(Note note) async {
-    final updatedNote = note.copyWith(isDone: !note.isDone);
-    try {
-      final result = await apiService.updateNote(updatedNote);
-      if (!mounted) return;
-      _loadNotes();
-    } catch (e) {
-      print('Fehler beim Aktualisieren der Notiz: $e');
-    }
-  }
+  void _showFilterDialog() {
+    String tempStatus = _selectedStatus;
+    List<String> tempLabels = List.from(_selectedLabelsFilter);
+    DateTimeRange? tempDateRange = _selectedDateRange;
 
-  void _deleteNote(Note note) async {
-    try {
-      await apiService.deleteNote(note.id!);
-      if (!mounted) return;
-      _loadNotes();
-    } catch (e) {
-      print('Fehler beim Löschen der Notiz: $e');
-    }
-  }
-
-  void _editNote(Note note) async {
-    final updatedNote = await Navigator.push<Note>(
-      context,
-      MaterialPageRoute(
-        builder: (context) => FormPage(existingNote: note),
+    showDialog(
+      context: context,
+      builder: (_) => StatefulBuilder(
+        builder: (ctx, setStateDialog) => AlertDialog(
+          title: const Text('Filter'),
+          content: SingleChildScrollView(
+            child: Column(
+              children: [
+                const Text('Status'),
+                RadioListTile(
+                  title: const Text('Alle'),
+                  value: 'all',
+                  groupValue: tempStatus,
+                  onChanged: (v) => setStateDialog(() => tempStatus = v!),
+                ),
+                RadioListTile(
+                  title: const Text('Erledigt'),
+                  value: 'done',
+                  groupValue: tempStatus,
+                  onChanged: (v) => setStateDialog(() => tempStatus = v!),
+                ),
+                RadioListTile(
+                  title: const Text('Nicht erledigt'),
+                  value: 'not_done',
+                  groupValue: tempStatus,
+                  onChanged: (v) => setStateDialog(() => tempStatus = v!),
+                ),
+                const SizedBox(height: 10),
+                const Text('Labels'),
+                Wrap(
+                  spacing: 6,
+                  children: ['dringend', 'Rückmeldung', 'Andere'].map((label) {
+                    final selected = tempLabels.contains(label);
+                    return FilterChip(
+                      label: Text(label),
+                      selected: selected,
+                      onSelected: (yes) {
+                        setStateDialog(() {
+                          yes ? tempLabels.add(label) : tempLabels.remove(label);
+                        });
+                      },
+                    );
+                  }).toList(),
+                ),
+                const SizedBox(height: 10),
+                ElevatedButton(
+                  onPressed: () async {
+                    final picked = await showDateRangePicker(
+                      context: ctx,
+                      firstDate: DateTime(2000),
+                      lastDate: DateTime(2100),
+                      initialDateRange: tempDateRange,
+                    );
+                    if (picked != null) setStateDialog(() => tempDateRange = picked);
+                  },
+                  child: Text(tempDateRange == null
+                      ? 'Datum auswählen'
+                      : '${DateFormat.yMd().format(tempDateRange!.start)} – ${DateFormat.yMd().format(tempDateRange!.end)}'),
+                ),
+                if (tempDateRange != null)
+                  TextButton(
+                    onPressed: () => setStateDialog(() => tempDateRange = null),
+                    child: const Text('Datum entfernen'),
+                  ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Abbrechen')),
+            TextButton(
+              onPressed: () {
+                setState(() {
+                  _selectedStatus = tempStatus;
+                  _selectedLabelsFilter = tempLabels;
+                  _selectedDateRange = tempDateRange;
+                });
+                Navigator.pop(ctx);
+              },
+              child: const Text('Anwenden'),
+            ),
+          ],
+        ),
       ),
     );
+  }
 
-    if (updatedNote != null) {
-      try {
-        await apiService.updateNote(updatedNote);
-        if (!mounted) return;
-        _loadNotes();
-      } catch (e) {
-        print('Fehler beim Aktualisieren der Notiz: $e');
-      }
+  Future<void> _toggleDone(Note note) async {
+    final updated = note.copyWith(isDone: !note.isDone);
+    await apiService.updateNote(updated);
+    _updateOrInsertNote(updated);
+  }
+
+  Future<void> _editNote(Note note) async {
+    final updated = await Navigator.push<Note>(
+      context,
+      MaterialPageRoute(builder: (_) => FormPage(existingNote: note)),
+    );
+    if (updated != null) {
+      await apiService.updateNote(updated);
+      _updateOrInsertNote(updated);
     }
   }
 
-  void _addNewNote() async {
-    final newNote = await Navigator.push<Note>(
-      context,
-      MaterialPageRoute(builder: (context) => const FormPage()),
-    );
+  Future<void> _deleteNote(Note note) async {
+    await apiService.deleteNote(note.id!);
+    _removeNoteById(note.id.toString());
+  }
 
-    if (newNote != null) {
-      if (!mounted) return;
-      _loadNotes();
-    }
+  Future<void> _addNewNote() async {
+    final created = await Navigator.push<Note>(
+      context,
+      MaterialPageRoute(builder: (_) => const FormPage()),
+    );
+    if (created != null) _updateOrInsertNote(created);
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text("Notizen (Gruppiert)"),
+        title: const Text('Notizen (Gruppiert)'),
+        actions: [
+          IconButton(icon: const Icon(Icons.filter_list), onPressed: _showFilterDialog),
+        ],
         bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(60),
+          preferredSize: const Size.fromHeight(56),
           child: Padding(
-            padding: const EdgeInsets.all(8.0),
+            padding: const EdgeInsets.all(8),
             child: TextField(
               decoration: const InputDecoration(
-                hintText: 'Suche in Notizen...',
+                hintText: 'Suche...',
                 prefixIcon: Icon(Icons.search),
                 border: OutlineInputBorder(),
               ),
-              onChanged: (value) => setState(() {
-                _searchText = value.toLowerCase();
-              }),
+              onChanged: (v) => setState(() => _searchText = v),
             ),
           ),
         ),
       ),
-      body: isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : groupedNotes.isEmpty
-              ? const Center(child: Text('Keine Notizen gefunden.'))
-              : ListView.builder(
-                  itemCount: groupedNotes.length,
-                  itemBuilder: (context, groupIndex) {
-                    final group = groupedNotes[groupIndex]
-                        .where(_applyFilters)
-                        .toList()
-                      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
-
-                    if (group.isEmpty) return const SizedBox.shrink();
-
-                    final first = group.first;
-
-                    return ExpansionTile(
-                      title: Text(
-                        "${first.firstName} ${first.lastName}".trim().isEmpty
-                            ? (first.email ?? first.telephone ?? "Unbenannt")
-                            : "${first.firstName} ${first.lastName}",
-                        style: const TextStyle(fontWeight: FontWeight.bold),
+      body: groupedNotes.isEmpty
+          ? const Center(child: Text('Keine Notizen'))
+          : ListView(
+              children: groupedNotes.map((group) {
+                final filtered = group.where(_applyFilters).toList()
+                  ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+                if (filtered.isEmpty) return const SizedBox.shrink();
+                final first = filtered.first;
+                final key = _groupKey(first);
+                return ExpansionTile(
+                  key: PageStorageKey(key),
+                  initiallyExpanded: expansionState[key] ?? false,
+                  onExpansionChanged: (open) => expansionState[key] = open,
+                  title: Text(
+                    "${first.firstName} ${first.lastName}".trim().isNotEmpty
+                        ? "${first.firstName} ${first.lastName}"
+                        : (first.email ?? first.telephone ?? 'Unbenannt'),
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  subtitle: Text(first.email ?? first.telephone ?? ''),
+                  children: filtered.map((note) {
+                    return ListTile(
+                      leading: Checkbox(
+                        value: note.isDone,
+                        onChanged: (_) => _toggleDone(note),
                       ),
-                      subtitle: Text(first.email ?? first.telephone ?? ""),
-                      children: group.map((note) {
-                        return ListTile(
-                          leading: Checkbox(
-                            value: note.isDone,
-                            onChanged: (_) => _toggleDone(note),
+                      title: Text(note.noteText),
+                      subtitle: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          if (note.customDate != null)
+                            Text(
+                              'Datum: ${DateFormat.yMd().format(note.customDate!)}',
+                              style: const TextStyle(fontSize: 12),
+                            ),
+                          Wrap(
+                            spacing: 6,
+                            children: note.labels.map((l) => Chip(label: Text(l))).toList(),
                           ),
-                          title: Text(note.noteText),
-                          subtitle: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              if (note.customDate != null)
-                                Text(
-                                  'Datum: ${DateFormat.yMd().format(note.customDate!)}',
-                                  style: const TextStyle(fontSize: 12),
-                                ),
-                              Wrap(
-                                spacing: 6,
-                                children: note.labels
-                                    .map((label) => Chip(label: Text(label)))
-                                    .toList(),
-                              ),
-                            ],
-                          ),
-                          trailing: PopupMenuButton<String>(
-                            onSelected: (value) {
-                              if (value == 'edit') {
-                                _editNote(note);
-                              } else if (value == 'delete') {
-                                _deleteNote(note);
-                              }
-                            },
-                            itemBuilder: (context) => [
-                              const PopupMenuItem(
-                                value: 'edit',
-                                child: Text('Bearbeiten'),
-                              ),
-                              const PopupMenuItem(
-                                value: 'delete',
-                                child: Text('Löschen'),
-                              ),
-                            ],
-                          ),
-                        );
-                      }).toList(),
+                        ],
+                      ),
+                      trailing: PopupMenuButton<String>(
+                        onSelected: (v) {
+                          if (v == 'edit') _editNote(note);
+                          if (v == 'delete') _deleteNote(note);
+                        },
+                        itemBuilder: (_) => const [
+                          PopupMenuItem(value: 'edit', child: Text('Bearbeiten')),
+                          PopupMenuItem(value: 'delete', child: Text('Löschen')),
+                        ],
+                      ),
                     );
-                  },
-                ),
+                  }).toList(),
+                );
+              }).toList(),
+            ),
       floatingActionButton: FloatingActionButton(
         onPressed: _addNewNote,
         child: const Icon(Icons.add),

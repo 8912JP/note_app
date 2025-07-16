@@ -198,6 +198,16 @@ Future<List<List<Note>>> fetchGroupedNotes() async {
   }
 }
 
+Future<Note?> fetchNoteById(String id) async {
+  final response = await http.get(
+    Uri.parse('$baseUrl/notes/$id'),
+    headers: _authHeaders,
+  );
+  if (response.statusCode == 200) return Note.fromJson(jsonDecode(response.body));
+  if (response.statusCode == 404) return null;
+  throw Exception('Fehler: ${response.statusCode}');
+}
+
 
 }
 
