@@ -1,52 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'crm_entry.dart'; // dein CRMEntry Model
 import 'api_service.dart';
-
-class CrmEntry {
-  final String id;
-  final DateTime anfrageDatum;
-  final String titel;
-  final String vorname;
-  final String nachname;
-  final String adresse;
-  final String email;
-  final String mobil;
-  final String festnetz;
-  final String krankheitsstatus;
-  final List<ToDoItem> todos;
-  final String status;
-  final String bearbeiter;
-  final DateTime? wiedervorlage;
-  bool erledigt;
-
-  CrmEntry({
-    required this.id,
-    required this.anfrageDatum,
-    required this.titel,
-    required this.vorname,
-    required this.nachname,
-    required this.adresse,
-    required this.email,
-    required this.mobil,
-    required this.festnetz,
-    required this.krankheitsstatus,
-    required this.todos,
-    required this.status,
-    required this.bearbeiter,
-    required this.wiedervorlage,
-    this.erledigt = false,
-  });
-
-  String get todoSummary =>
-      todos.map((t) => '${t.done ? '✓' : '•'} ${t.text}').join(', ');
-}
-
-class ToDoItem {
-  String text;
-  bool done;
-
-  ToDoItem({required this.text, this.done = false});
-}
+import 'crm_entry_edit_form.dart';
 
 class CrmEntryProvider extends ChangeNotifier {
   List<CrmEntry> _entries = [];
@@ -88,14 +44,21 @@ class CRMOverviewPage extends StatelessWidget {
     return ChangeNotifierProvider(
       create: (_) => CrmEntryProvider()..loadEntries(),
       child: Scaffold(
-        appBar: AppBar(title: const Text('CRM Übersicht')),
-        body: const Padding(
-          padding: EdgeInsets.all(16.0),
-          child: CrmDataTable(),
+        appBar: AppBar(
+          title: const Text('CRM Übersicht'),
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.filter_list),
+              onPressed: () {
+                // TODO: Filterdialog öffnen
+              },
+            ),
+          ],
         ),
+        body: const CrmDataTableWrapper(),
         floatingActionButton: FloatingActionButton(
           onPressed: () {
-            // TODO: Eintrag hinzufügen
+            // TODO: Neuen Eintrag erstellen
           },
           child: const Icon(Icons.add),
         ),
@@ -104,48 +67,65 @@ class CRMOverviewPage extends StatelessWidget {
   }
 }
 
-class CrmDataTable extends StatelessWidget {
-  const CrmDataTable({super.key});
+class CrmDataTableWrapper extends StatelessWidget {
+  const CrmDataTableWrapper({super.key});
 
   @override
   Widget build(BuildContext context) {
     final provider = Provider.of<CrmEntryProvider>(context);
-    final entries = provider.filteredEntries;
 
-return Theme(
-  data: Theme.of(context).copyWith(
-    dataTableTheme: DataTableThemeData(
-      dataRowMinHeight: 72,        // doppelt so hoch wie vorher
-      headingRowHeight: 44,
-      horizontalMargin: 4,         // minimaler Rand links/rechts
-      columnSpacing: 6,            // enge Spalten
-    ),
-  ),
-      child: PaginatedDataTable(
-        header: const Text('Kundenanfragen'),
-        rowsPerPage: 10,
-        sortColumnIndex: provider.sortColumnIndex,
-        sortAscending: provider.sortAscending,
-        columns: [
-          DataColumn(label: const Text('Anfrage-Datum'), onSort: (i, asc) => provider.sortBy(i, (e) => e.anfrageDatum, asc)),
-          DataColumn(label: const Text('Anrede'), onSort: (i, asc) => provider.sortBy(i, (e) => e.titel, asc)),
-          DataColumn(label: const Text('Vorname'), onSort: (i, asc) => provider.sortBy(i, (e) => e.vorname.toLowerCase(), asc)),
-          DataColumn(label: const Text('Nachname'), onSort: (i, asc) => provider.sortBy(i, (e) => e.nachname.toLowerCase(), asc)),
-          DataColumn(label: const Text('Adresse'), onSort: (i, asc) => provider.sortBy(i, (e) => e.adresse.toLowerCase(), asc)),
-          DataColumn(label: const Text('E-Mail'), onSort: (i, asc) => provider.sortBy(i, (e) => e.email.toLowerCase(), asc)),
-          DataColumn(label: const Text('Mobil'), onSort: (i, asc) => provider.sortBy(i, (e) => e.mobil, asc)),
-          DataColumn(label: const Text('Festnetz'), onSort: (i, asc) => provider.sortBy(i, (e) => e.festnetz, asc)),
-          DataColumn(label: const Text('Krankheitsstatus'), onSort: (i, asc) => provider.sortBy(i, (e) => e.krankheitsstatus.length, asc)),
-          DataColumn(label: const Text('ToDos'), onSort: (i, asc) => provider.sortBy(i, (e) => e.todos.length, asc)),
-          DataColumn(label: const Text('Bearbeiter'), onSort: (i, asc) => provider.sortBy(i, (e) => e.bearbeiter.toLowerCase(), asc)),
-          DataColumn(label: const Text('Status'), onSort: (i, asc) => provider.sortBy(i, (e) => e.status.toLowerCase(), asc)),
-          DataColumn(label: const Text('Erledigt'), onSort: (i, asc) => provider.sortBy(i, (e) => e.erledigt.toString(), asc)),
-          DataColumn(label: const Text('Wiedervorlage'), onSort: (i, asc) => provider.sortBy(i, (e) => e.wiedervorlage ?? DateTime(1900), asc)),
-          const DataColumn(label: Text('Aktionen')),
-        ],
-        source: CrmDataSource(entries, context),
-      ),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return SingleChildScrollView(
+          padding: const EdgeInsets.all(16),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minWidth: constraints.maxWidth),
+            child: Theme(
+              data: Theme.of(context).copyWith(
+                dataTableTheme: DataTableThemeData(
+                  dataRowMinHeight: 48,
+                  dataRowMaxHeight: 144, // max 3× Standardhöhe
+                  headingRowHeight: 44,
+                  horizontalMargin: 4,
+                  columnSpacing: 8,
+                ),
+              ),
+              child: PaginatedDataTable(
+                columnSpacing: 8,
+                rowsPerPage: 10,
+                sortColumnIndex: provider.sortColumnIndex,
+                sortAscending: provider.sortAscending,
+                columns: _buildColumns(provider),
+                source: CrmDataSource(provider.filteredEntries, context),
+              ),
+            ),
+          ),
+        );
+      },
     );
+  }
+
+  List<DataColumn> _buildColumns(CrmEntryProvider provider) {
+    return [
+      DataColumn(label: const Text('Anfrage'), onSort: (i, a) => provider.sortBy(i, (e) => e.anfrageDatum, a)),
+      DataColumn(label: const Text('Anrede'), onSort: (i, a) => provider.sortBy(i, (e) => e.titel, a)),
+      DataColumn(label: const Text('Vorname'), onSort: (i, a) => provider.sortBy(i, (e) => e.vorname, a)),
+      DataColumn(label: const Text('Nachname'), onSort: (i, a) => provider.sortBy(i, (e) => e.nachname, a)),
+      DataColumn(label: const Text('Adresse'), onSort: (i, a) => provider.sortBy(i, (e) => e.adresse, a)),
+      DataColumn(label: const Text('E-Mail'), onSort: (i, a) => provider.sortBy(i, (e) => e.email, a)),
+      DataColumn(label: const Text('Mobil'), onSort: (i, a) => provider.sortBy(i, (e) => e.mobil, a)),
+      DataColumn(label: const Text('Festnetz'), onSort: (i, a) => provider.sortBy(i, (e) => e.festnetz, a)),
+      DataColumn(label: const Text('Typ'), onSort: (i, a) => provider.sortBy(i, (e) => e.typ ?? '-', a)),
+      DataColumn(label: const Text('Stadium'), onSort: (i, a) => provider.sortBy(i, (e) => e.stadium, a)),
+      DataColumn(label: const Text('Krankheitsstatus'), onSort: (i, a) => provider.sortBy(i, (e) => e.krankheitsstatus.length, a)),
+      DataColumn(label: const Text('ToDos'), onSort: (i, a) => provider.sortBy(i, (e) => e.todos.length, a)),
+      DataColumn(label: const Text('Bearbeiter'), onSort: (i, a) => provider.sortBy(i, (e) => e.bearbeiter, a)),
+      DataColumn(label: const Text('Kontaktquelle'), onSort: (i, a) => provider.sortBy(i, (e) => e.kontaktquelle, a)),
+      DataColumn(label: const Text('Status'), onSort: (i, a) => provider.sortBy(i, (e) => e.status, a)),
+      DataColumn(label: const Text('Erledigt'), onSort: (i, a) => provider.sortBy(i, (e) => e.erledigt.toString(), a)),
+      DataColumn(label: const Text('Wiedervorlage'), onSort: (i, a) => provider.sortBy(i, (e) => e.wiedervorlage ?? DateTime(1900), a)),
+      const DataColumn(label: Text('Aktionen')),
+    ];
   }
 }
 
@@ -158,38 +138,48 @@ class CrmDataSource extends DataTableSource {
   @override
   DataRow getRow(int index) {
     if (index >= entries.length) return const DataRow(cells: []);
-    final entry = entries[index];
+    final e = entries[index];
 
     return DataRow.byIndex(
       index: index,
       cells: [
-        DataCell(_wrapText(_formatDate(entry.anfrageDatum))),
-        DataCell(_wrapText(entry.titel)),
-        DataCell(_wrapText(entry.vorname)),
-        DataCell(_wrapText(entry.nachname)),
-        DataCell(_wrapText(entry.adresse)),
-        DataCell(_wrapText(entry.email)),
-        DataCell(_wrapText(entry.mobil)),
-        DataCell(_wrapText(entry.festnetz)),
-        DataCell(_wrapText(entry.krankheitsstatus)),
-        DataCell(_wrapText(entry.todoSummary)),
-        DataCell(_wrapText(entry.bearbeiter)),
-        DataCell(_wrapText(entry.status)),
+        DataCell(_wrapText(_formatDate(e.anfrageDatum))),
+        DataCell(_wrapText(e.titel)),
+        DataCell(_wrapText(e.vorname)),
+        DataCell(_wrapText(e.nachname)),
+        DataCell(_wrapText(e.adresse)),
+        DataCell(_wrapText(e.email)),
+        DataCell(_wrapText(e.mobil)),
+        DataCell(_wrapText(e.festnetz)),
+        DataCell(_wrapText(e.typ ?? '-')),
+        DataCell(_wrapText(e.stadium)),
+        DataCell(_wrapText(e.krankheitsstatus)),
+        DataCell(_wrapText(e.todoSummary)),
+        DataCell(_wrapText(e.bearbeiter)),
+        DataCell(_wrapText(e.kontaktquelle)),
+        DataCell(_wrapText(e.status)),
         DataCell(Checkbox(
-          value: entry.erledigt,
+          value: e.erledigt,
           onChanged: (val) {
-            Provider.of<CrmEntryProvider>(context, listen: false)
-                .toggleErledigt(entry.id, val ?? false);
+            Provider.of<CrmEntryProvider>(context, listen: false).toggleErledigt(e.id, val ?? false);
           },
         )),
-        DataCell(_wrapText(_formatDate(entry.wiedervorlage))),
+        DataCell(_wrapText(_formatDate(e.wiedervorlage))),
         DataCell(Row(
           children: [
             IconButton(
               icon: const Icon(Icons.edit),
               onPressed: () {
-                // TODO: zur Bearbeitungsseite navigieren
-              },
+               Navigator.of(context).push(
+               MaterialPageRoute(
+                builder: (_) => CrmEntryEditForm(
+                  currentUser: 'Dr. Müller', // Hier sollte dein eingeloggter Benutzer stehen
+                  // Falls du später bestehende Daten übergeben willst:
+                  // initialEntry: entry,
+      ),
+    ),
+  );
+},
             ),
           ],
         )),
@@ -197,21 +187,18 @@ class CrmDataSource extends DataTableSource {
     );
   }
 
-  static Widget _wrapText(String text, {double maxWidth = 160, int maxLines = 3}) {
-  return ConstrainedBox(
-    constraints: BoxConstraints(
-      maxWidth: maxWidth,
-      maxHeight: maxLines * 20.0, // z. B. 3 Zeilen à 20px
-    ),
-    child: Text(
-      text,
-      overflow: TextOverflow.ellipsis,
-      softWrap: true,
-      maxLines: maxLines,
-      style: const TextStyle(fontSize: 14, height: 1.3),
-    ),
-  );
-}
+  static Widget _wrapText(String text, {double minWidth = 100, double maxWidth = 240, int maxLines = 6}) {
+    return ConstrainedBox(
+      constraints: BoxConstraints(minWidth: minWidth, maxWidth: maxWidth),
+      child: Text(
+        text,
+        overflow: TextOverflow.ellipsis,
+        softWrap: true,
+        maxLines: maxLines,
+        style: const TextStyle(height: 1.4),
+      ),
+    );
+  }
 
   static String _formatDate(DateTime? dt) {
     if (dt == null) return '-';
@@ -220,28 +207,40 @@ class CrmDataSource extends DataTableSource {
 
   @override
   bool get isRowCountApproximate => false;
+
   @override
   int get rowCount => entries.length;
+
   @override
   int get selectedRowCount => 0;
 }
 
-final List<CrmEntry> dummyData = [
-  CrmEntry(
-    id: '1',
-    anfrageDatum: DateTime(2025, 6, 20),
-    titel: 'Herr',
-    vorname: 'Max',
-    nachname: 'Mustermann',
-    adresse: 'Musterstraße 1, 12345 Musterstadt',
-    email: 'max@muster.de',
-    mobil: '0123456789',
-    festnetz: '0987654321',
-    krankheitsstatus: 'Rückenschmerzen seit zwei Wochen. Keine Besserung trotz Medikation.',
-    todos: [ToDoItem(text: 'Rückmeldung geben'), ToDoItem(text: 'Termin abstimmen')],
-    status: 'Offen',
-    bearbeiter: 'Dr. Müller',
-    wiedervorlage: DateTime(2025, 7, 25),
-    erledigt: false,
+
+// Dummy-Daten zum Testen
+final dummyData = List.generate(
+  50,
+  (index) => CrmEntry(
+    id: 'id_$index',
+    anfrageDatum: DateTime.now().subtract(Duration(days: index * 2)),
+    titel: index % 2 == 0 ? 'Herr' : 'Frau',
+    vorname: 'Vorname$index',
+    nachname: 'Nachname$index',
+    adresse: 'Musterstraße $index, Stadt',
+    email: 'email$index@example.com',
+    mobil: '+49123456789$index',
+    festnetz: '+4901234567$index',
+    krankheitsstatus: index % 3 == 0
+        ? 'Chronische Krankheit, benötigt Unterstützung'
+        : 'Gesund',
+    todos: List.generate(
+      (index % 3) + 1,
+      (i) => ToDoItem(text: 'Aufgabe ${i + 1}', done: i % 2 == 0),
+    ),
+    status: index % 2 == 0 ? 'Neu' : 'In Bearbeitung',
+    bearbeiter: 'Mitarbeiter ${index % 5}',
+    wiedervorlage: index % 4 == 0 ? DateTime.now().add(Duration(days: index)) : null,
+    typ: 'Privat',
+    stadium: 'Interessent',
+    kontaktquelle: 'Website',
   ),
-];
+);
