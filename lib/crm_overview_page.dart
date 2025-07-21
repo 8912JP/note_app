@@ -1,20 +1,54 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:web_socket_channel/web_socket_channel.dart';
+import 'package:web_socket_channel/status.dart' as status;
+import 'dart:convert';
 
 import 'crm_entry.dart';
 import 'api_service.dart';
 import 'crm_entry_edit_form.dart';
+import 'form_page.dart';
 
 class CrmEntryProvider extends ChangeNotifier {
   List<CrmEntry> _entries = [];
+  String _searchText = '';
+  DateTimeRange? _selectedDateRange;
+
   int sortColumnIndex = 0;
   bool sortAscending = true;
 
-  List<CrmEntry> get filteredEntries => _entries;
+  set searchText(String value) {
+    _searchText = value;
+    notifyListeners();
+  }
+
+  set selectedDateRange(DateTimeRange? range) {
+    _selectedDateRange = range;
+    notifyListeners();
+  }
+
+  List<CrmEntry> get filteredEntries {
+    return _entries.where((e) {
+      final text = '${e.vorname} ${e.nachname} ${e.email} ${e.adresse}'.toLowerCase();
+      if (_searchText.isNotEmpty && !text.contains(_searchText.toLowerCase())) {
+        return false;
+      }
+      if (_selectedDateRange != null) {
+        if (e.anfrageDatum.isBefore(_selectedDateRange!.start) ||
+            e.anfrageDatum.isAfter(_selectedDateRange!.end)) {
+          return false;
+        }
+      }
+      return true;
+    }).toList();
+  }
 
   Future<void> loadEntries(ApiService apiService) async {
     try {
       _entries = await apiService.fetchCrmEntries();
+      _entries.sort((a, b) => b.anfrageDatum.compareTo(a.anfrageDatum));
+      sortColumnIndex = 0;
+      sortAscending = false;
       notifyListeners();
     } catch (e) {
       print("Fehler beim Laden der CRM-Daten: $e");
@@ -40,36 +74,188 @@ class CrmEntryProvider extends ChangeNotifier {
   }
 }
 
-class CRMOverviewPage extends StatelessWidget {
+class CRMOverviewPage extends StatefulWidget {
   final ApiService apiService;
-
   const CRMOverviewPage({super.key, required this.apiService});
+
+
+  @override
+  _CRMOverviewPageState createState() => _CRMOverviewPageState();
+}
+
+class _CRMOverviewPageState extends State<CRMOverviewPage> {
+  WebSocketChannel? _channel;
+  String _searchText = '';
+  DateTimeRange? _selectedDateRange;
+
+  @override
+void initState() {
+  super.initState();
+
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    final provider = Provider.of<CrmEntryProvider>(context, listen: false);
+    provider.loadEntries(widget.apiService);
+    connectToCrmWebSocket();
+  });
+}
+
+@override
+Widget build(BuildContext context) {
+  return ChangeNotifierProvider(
+    create: (_) => CrmEntryProvider(),
+    child: Scaffold(
+      // ...
+      body: const CrmDataTableWrapper(),
+    ),
+  );
+}
+
+  @override
+  void dispose() {
+    _channel?.sink.close(status.normalClosure);
+    super.dispose();
+  }
+
+  void connectToCrmWebSocket(BuildContext context) {
+  final token = widget.apiService.accessToken;
+  if (token == null) {
+    print("❌ Kein Token für WebSocket");
+    return;
+  }
+
+  final uri = Uri.parse('ws://iqmedix.cloud:8000/ws/crm?token=$token');
+  _channel = WebSocketChannel.connect(uri);
+
+  _channel!.stream.listen(
+    (message) {
+      try {
+        final data = json.decode(message);
+        print("📥 CRM-Event: $data");
+        final event = data['event'];
+        if (event == 'crm_created' || event == 'crm_updated') {
+          final provider = Provider.of<CrmEntryProvider>(context, listen: false);
+          provider.loadEntries(widget.apiService);
+        }
+      } catch (e) {
+        print("❌ Fehler beim Parsen der CRM WebSocket Nachricht: $e");
+      }
+    },
+    onError: (error) {
+      print("❌ WebSocket Fehler: $error");
+    },
+    onDone: () {
+      print("🔌 WebSocket Verbindung geschlossen");
+    },
+  );
+}
 
   @override
   Widget build(BuildContext context) {
     return ChangeNotifierProvider(
-      create: (_) {
-        final provider = CrmEntryProvider();
-        provider.loadEntries(apiService);
-        return provider;
-      },
-      child: Scaffold(
-        appBar: AppBar(title: const Text('CRM Übersicht')),
-        body: const CrmDataTableWrapper(),
-        floatingActionButton: FloatingActionButton(
-          onPressed: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => CrmEntryEditForm(currentUser: ApiService().loggedInUser ?? 'Unbekannt'),
-              ),
-            );
-          },
-          child: const Icon(Icons.add),
+  create: (_) => CrmEntryProvider(),
+  builder: (context, child) {
+  final provider = Provider.of<CrmEntryProvider>(context, listen: false);
+  provider.loadEntries(widget.apiService);
+
+  connectToCrmWebSocket(context); // ✅ Übergib den context hier
+
+  return child!;
+},
+  child: Scaffold(
+    appBar: AppBar(
+  title: const Text('CRM Übersicht'),
+  actions: [
+    IconButton(
+      icon: const Icon(Icons.filter_alt),
+      onPressed: _showFilterDialog,
+    ),
+  ],
+  bottom: PreferredSize(
+    preferredSize: const Size.fromHeight(56),
+    child: Padding(
+      padding: const EdgeInsets.all(8),
+      child: TextField(
+        decoration: const InputDecoration(
+          hintText: 'Suche...',
+          prefixIcon: Icon(Icons.search),
+          border: OutlineInputBorder(),
         ),
+        onChanged: (value) {
+          Provider.of<CrmEntryProvider>(context, listen: false).searchText = value;
+        },
       ),
-    );
+    ),
+  ),
+),
+    body: CrmDataTableWrapper(),
+    floatingActionButton: FloatingActionButton(
+      onPressed: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => CrmEntryEditForm(
+              currentUser: ApiService().loggedInUser ?? 'Unbekannt',
+            ),
+          ),
+        );
+      },
+      child: const Icon(Icons.add),
+    ),
+  ),
+);
   }
+void _showFilterDialog() {
+  DateTimeRange? tempRange = _selectedDateRange;
+
+  showDialog(
+    context: context,
+    builder: (_) => StatefulBuilder(
+      builder: (ctx, setStateDialog) => AlertDialog(
+        title: const Text('Datum filtern'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ElevatedButton(
+              onPressed: () async {
+                final picked = await showDateRangePicker(
+                  context: ctx,
+                  firstDate: DateTime(2000),
+                  lastDate: DateTime(2100),
+                  initialDateRange: tempRange,
+                );
+                if (picked != null) setStateDialog(() => tempRange = picked);
+              },
+              child: Text(tempRange == null
+                  ? 'Datum auswählen'
+                  : '${tempRange!.start.day}.${tempRange!.start.month}.${tempRange!.start.year} – ${tempRange!.end.day}.${tempRange!.end.month}.${tempRange!.end.year}'),
+            ),
+            if (tempRange != null)
+              TextButton(
+                onPressed: () {
+  Provider.of<CrmEntryProvider>(context, listen: false).selectedDateRange = tempRange;
+  Navigator.pop(ctx);
+},
+                child: const Text('Zurücksetzen'),
+              ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Abbrechen')),
+          TextButton(
+            onPressed: () {
+              setState(() {
+                _selectedDateRange = tempRange;
+              });
+              Navigator.pop(ctx);
+            },
+            child: const Text('Anwenden'),
+          ),
+        ],
+      ),
+    ),
+  );
+}  
+
 }
 
 class CrmDataTableWrapper extends StatelessWidget {
@@ -79,6 +265,9 @@ class CrmDataTableWrapper extends StatelessWidget {
   Widget build(BuildContext context) {
     final provider = Provider.of<CrmEntryProvider>(context);
 
+    final filteredEntries = provider.filteredEntries;
+
+    // ... Rest bleibt gleich, nur `provider.filteredEntries` verwenden
     return LayoutBuilder(
       builder: (context, constraints) {
         return SingleChildScrollView(
@@ -101,7 +290,7 @@ class CrmDataTableWrapper extends StatelessWidget {
                 sortColumnIndex: provider.sortColumnIndex,
                 sortAscending: provider.sortAscending,
                 columns: _buildColumns(provider),
-                source: CrmDataSource(provider.filteredEntries, context),
+                source: CrmDataSource(filteredEntries, context), // NUR gefilterte Daten hier
               ),
             ),
           ),
@@ -186,6 +375,18 @@ class CrmDataSource extends DataTableSource {
                 );
               },
             ),
+            IconButton(
+              icon: const Icon(Icons.note_add),
+              tooltip: 'Notiz aus CRM erstellen',
+              onPressed: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => FormPage(
+                      fromCrmEntry: e,                    // ✅ Übergabe    
+      ),
+    ));
+  },
+),
           ],
         )),
       ],

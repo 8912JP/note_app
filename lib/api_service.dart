@@ -13,6 +13,7 @@ class ApiService {
   String? _accessToken;
   String? _loggedInUser;
   String? get loggedInUser => _loggedInUser;
+  String? get accessToken => _accessToken;
 
 
 WebSocketChannel? _channel;

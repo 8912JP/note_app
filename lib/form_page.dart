@@ -2,11 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'api_service.dart';
 import 'package:note_app/note.dart';
+import 'crm_entry.dart';
 
 class FormPage extends StatefulWidget {
   final Note? existingNote;
+  final CrmEntry? fromCrmEntry; // ✅ NEU
 
-  const FormPage({super.key, this.existingNote});
+  const FormPage({super.key, this.existingNote, this.fromCrmEntry});
 
   @override
   _FormPageState createState() => _FormPageState();
@@ -39,12 +41,27 @@ class _FormPageState extends State<FormPage> {
     super.initState();
     apiService = ApiService();
 
-    _firstNameController = TextEditingController(text: widget.existingNote?.firstName ?? '');
-    _lastNameController = TextEditingController(text: widget.existingNote?.lastName ?? '');
-    _emailController = TextEditingController(text: widget.existingNote?.email ?? '');
-    _telephoneController = TextEditingController(text: widget.existingNote?.telephone ?? '');
-    _addressController = TextEditingController(text: widget.existingNote?.address ?? '');
-    _noteTextController = TextEditingController(text: widget.existingNote?.noteText ?? '');
+    _firstNameController = TextEditingController(
+  text: widget.existingNote?.firstName ?? widget.fromCrmEntry?.vorname ?? '',
+);
+_lastNameController = TextEditingController(
+  text: widget.existingNote?.lastName ?? widget.fromCrmEntry?.nachname ?? '',
+);
+_emailController = TextEditingController(
+  text: widget.existingNote?.email ?? widget.fromCrmEntry?.email ?? '',
+);
+_telephoneController = TextEditingController(
+  text: widget.existingNote?.telephone ?? widget.fromCrmEntry?.mobil ?? '',
+);
+_addressController = TextEditingController(
+  text: widget.existingNote?.address ?? widget.fromCrmEntry?.adresse ?? '',
+);
+    _noteTextController = TextEditingController(
+  text: widget.existingNote?.noteText ??
+      'CRM-Typ: ${widget.fromCrmEntry?.typ ?? "-"}\n'
+      'Status: ${widget.fromCrmEntry?.status ?? "-"}\n'
+      'Bearbeiter: ${widget.fromCrmEntry?.bearbeiter ?? "-"}',
+);
     _selectedDate = widget.existingNote?.customDate;
     _selectedGender = widget.existingNote?.gender ?? 'männlich';
     _selectedLabels = widget.existingNote?.labels.toList() ?? [];
