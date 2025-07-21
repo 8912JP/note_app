@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'crm_entry.dart'; // dein CRMEntry Model
+
+import 'crm_entry.dart';
 import 'api_service.dart';
 import 'crm_entry_edit_form.dart';
 
@@ -11,9 +12,13 @@ class CrmEntryProvider extends ChangeNotifier {
 
   List<CrmEntry> get filteredEntries => _entries;
 
-  void loadEntries() {
-    _entries = dummyData;
-    notifyListeners();
+  Future<void> loadEntries(ApiService apiService) async {
+    try {
+      _entries = await apiService.fetchCrmEntries();
+      notifyListeners();
+    } catch (e) {
+      print("Fehler beim Laden der CRM-Daten: $e");
+    }
   }
 
   void sortBy<T>(int columnIndex, Comparable<T> Function(CrmEntry e) getField, bool ascending) {
@@ -31,6 +36,7 @@ class CrmEntryProvider extends ChangeNotifier {
     final entry = _entries.firstWhere((e) => e.id == id);
     entry.erledigt = erledigt;
     notifyListeners();
+    // Optional: API-Patch call
   }
 }
 
@@ -42,23 +48,22 @@ class CRMOverviewPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ChangeNotifierProvider(
-      create: (_) => CrmEntryProvider()..loadEntries(),
+      create: (_) {
+        final provider = CrmEntryProvider();
+        provider.loadEntries(apiService);
+        return provider;
+      },
       child: Scaffold(
-        appBar: AppBar(
-          title: const Text('CRM Übersicht'),
-          actions: [
-            IconButton(
-              icon: const Icon(Icons.filter_list),
-              onPressed: () {
-                // TODO: Filterdialog öffnen
-              },
-            ),
-          ],
-        ),
+        appBar: AppBar(title: const Text('CRM Übersicht')),
         body: const CrmDataTableWrapper(),
         floatingActionButton: FloatingActionButton(
           onPressed: () {
-            // TODO: Neuen Eintrag erstellen
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => CrmEntryEditForm(currentUser: ApiService().loggedInUser ?? 'Unbekannt'),
+              ),
+            );
           },
           child: const Icon(Icons.add),
         ),
@@ -82,9 +87,9 @@ class CrmDataTableWrapper extends StatelessWidget {
             constraints: BoxConstraints(minWidth: constraints.maxWidth),
             child: Theme(
               data: Theme.of(context).copyWith(
-                dataTableTheme: DataTableThemeData(
+                dataTableTheme: const DataTableThemeData(
                   dataRowMinHeight: 48,
-                  dataRowMaxHeight: 144, // max 3× Standardhöhe
+                  dataRowMaxHeight: 144,
                   headingRowHeight: 44,
                   horizontalMargin: 4,
                   columnSpacing: 8,
@@ -154,7 +159,7 @@ class CrmDataSource extends DataTableSource {
         DataCell(_wrapText(e.typ ?? '-')),
         DataCell(_wrapText(e.stadium)),
         DataCell(_wrapText(e.krankheitsstatus)),
-        DataCell(_wrapText(e.todoSummary)),
+        DataCell(_wrapText(e.todoSummary)), // z.B. "3 offene ToDos"
         DataCell(_wrapText(e.bearbeiter)),
         DataCell(_wrapText(e.kontaktquelle)),
         DataCell(_wrapText(e.status)),
@@ -170,16 +175,16 @@ class CrmDataSource extends DataTableSource {
             IconButton(
               icon: const Icon(Icons.edit),
               onPressed: () {
-               Navigator.of(context).push(
-               MaterialPageRoute(
-                builder: (_) => CrmEntryEditForm(
-                  currentUser: 'Dr. Müller', // Hier sollte dein eingeloggter Benutzer stehen
-                  // Falls du später bestehende Daten übergeben willst:
-                  // initialEntry: entry,
-      ),
-    ),
-  );
-},
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => CrmEntryEditForm(
+                      existingEntry: e,                    // ✅ Übergabe
+                      currentUser: ApiService().loggedInUser!
+                      // Optional: Bestehenden Eintrag als Argument übergeben
+                    ),
+                  ),
+                );
+              },
             ),
           ],
         )),
@@ -214,33 +219,3 @@ class CrmDataSource extends DataTableSource {
   @override
   int get selectedRowCount => 0;
 }
-
-
-// Dummy-Daten zum Testen
-final dummyData = List.generate(
-  50,
-  (index) => CrmEntry(
-    id: 'id_$index',
-    anfrageDatum: DateTime.now().subtract(Duration(days: index * 2)),
-    titel: index % 2 == 0 ? 'Herr' : 'Frau',
-    vorname: 'Vorname$index',
-    nachname: 'Nachname$index',
-    adresse: 'Musterstraße $index, Stadt',
-    email: 'email$index@example.com',
-    mobil: '+49123456789$index',
-    festnetz: '+4901234567$index',
-    krankheitsstatus: index % 3 == 0
-        ? 'Chronische Krankheit, benötigt Unterstützung'
-        : 'Gesund',
-    todos: List.generate(
-      (index % 3) + 1,
-      (i) => ToDoItem(text: 'Aufgabe ${i + 1}', done: i % 2 == 0),
-    ),
-    status: index % 2 == 0 ? 'Neu' : 'In Bearbeitung',
-    bearbeiter: 'Mitarbeiter ${index % 5}',
-    wiedervorlage: index % 4 == 0 ? DateTime.now().add(Duration(days: index)) : null,
-    typ: 'Privat',
-    stadium: 'Interessent',
-    kontaktquelle: 'Website',
-  ),
-);

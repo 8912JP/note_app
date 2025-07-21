@@ -1,9 +1,16 @@
 import 'package:flutter/material.dart';
+import 'api_service.dart';
+import 'crm_entry.dart';
 
 class CrmEntryEditForm extends StatefulWidget {
+  final CrmEntry? existingEntry;
   final String currentUser;
 
-  const CrmEntryEditForm({super.key, required this.currentUser});
+  const CrmEntryEditForm({
+    super.key,
+    this.existingEntry,
+    required this.currentUser,
+  });
 
   @override
   State<CrmEntryEditForm> createState() => _CrmEntryEditFormState();
@@ -12,7 +19,6 @@ class CrmEntryEditForm extends StatefulWidget {
 class _CrmEntryEditFormState extends State<CrmEntryEditForm> {
   final _formKey = GlobalKey<FormState>();
 
-  // Form field controllers
   String? _titel;
   final _vornameController = TextEditingController();
   final _nachnameController = TextEditingController();
@@ -26,44 +32,108 @@ class _CrmEntryEditFormState extends State<CrmEntryEditForm> {
   final _festnetzController = TextEditingController();
   final _krankheitController = TextEditingController();
   final _wiedervorlageController = TextEditingController();
+  final _typController = TextEditingController();
+  final _stadiumController = TextEditingController();
 
   String? _status;
   String? _kontaktquelle;
-  final List<String> _todoItems = [];
+
+  final List<ToDoItem> _todoItems = [];
   final _todoController = TextEditingController();
 
   final List<String> _titelOptions = ['Herr', 'Frau', 'Divers', 'Dr.', 'Prof.'];
   final List<String> _statusOptions = ['Offen', 'In Bearbeitung', 'Abgeschlossen'];
   final List<String> _kontaktquelleOptions = ['E-Mail', 'Telefon', 'Onlineformular', 'Empfehlung'];
-  final List<String> _todoVorschlage = ['Erneut kontaktieren', 'Angebot senden', 'Dokument prüfen'];
 
-  void _addToDoItem(String item) {
-    if (item.trim().isNotEmpty && !_todoItems.contains(item)) {
+  @override
+  void initState() {
+    super.initState();
+    final entry = widget.existingEntry;
+    if (entry != null) {
+      _titel = entry.titel;
+      _vornameController.text = entry.vorname;
+      _nachnameController.text = entry.nachname;
+
+      final adresseParts = entry.adresse.split(',');
+      if (adresseParts.length >= 3) {
+        final streetParts = adresseParts[0].trim().split(' ');
+        if (streetParts.length >= 2) {
+          _strasseController.text = streetParts.sublist(0, streetParts.length - 1).join(' ');
+          _hausnummerController.text = streetParts.last;
+        }
+        _plzController.text = adresseParts[1].trim().split(' ').first;
+        _ortController.text = adresseParts[1].trim().split(' ').sublist(1).join(' ');
+        _landController.text = adresseParts[2].trim();
+      }
+
+      _emailController.text = entry.email;
+      _mobilController.text = entry.mobil;
+      _festnetzController.text = entry.festnetz;
+      _krankheitController.text = entry.krankheitsstatus;
+      _status = entry.status;
+      _kontaktquelle = entry.kontaktquelle;
+      _typController.text = entry.typ ?? '';
+      _stadiumController.text = entry.stadium;
+      _wiedervorlageController.text =
+          entry.wiedervorlage?.toIso8601String().split('T').first ?? '';
+      _todoItems.addAll(entry.todos); // ✅ Status bleibt erhalten
+    }
+  }
+
+  void _addToDoItem(String text) {
+    if (text.trim().isNotEmpty) {
       setState(() {
-        _todoItems.add(item.trim());
+        _todoItems.add(ToDoItem(text: text.trim()));
       });
       _todoController.clear();
     }
   }
 
-  void _submitForm() {
+  Future<void> _submitForm() async {
     if (_formKey.currentState!.validate()) {
       _formKey.currentState!.save();
 
-      // Hier speicherst du das CRM Entry – kann mit Provider, API oder DB verbunden werden
-      debugPrint("Speichern:");
-      debugPrint("Titel: $_titel");
-      debugPrint("Vorname: ${_vornameController.text}");
-      debugPrint("Nachname: ${_nachnameController.text}");
-      debugPrint("Adresse: ${_strasseController.text} ${_hausnummerController.text}, ${_plzController.text} ${_ortController.text}, ${_landController.text}");
-      debugPrint("E-Mail: ${_emailController.text}");
-      debugPrint("Mobil: ${_mobilController.text}");
-      debugPrint("Festnetz: ${_festnetzController.text}");
-      debugPrint("Status: $_status");
-      debugPrint("Kontaktquelle: $_kontaktquelle");
-      debugPrint("Bearbeiter: ${widget.currentUser}");
-      debugPrint("ToDos: $_todoItems");
-      debugPrint("Krankheit: ${_krankheitController.text}");
+      final entry = CrmEntry(
+        id: widget.existingEntry?.id ?? DateTime.now().millisecondsSinceEpoch.toString(),
+        anfrageDatum: widget.existingEntry?.anfrageDatum ?? DateTime.now(),
+        titel: _titel ?? '',
+        vorname: _vornameController.text,
+        nachname: _nachnameController.text,
+        adresse:
+            "${_strasseController.text} ${_hausnummerController.text}, ${_plzController.text} ${_ortController.text}, ${_landController.text}",
+        email: _emailController.text,
+        mobil: _mobilController.text,
+        festnetz: _festnetzController.text,
+        krankheitsstatus: _krankheitController.text,
+        todos: _todoItems,
+        status: _status ?? '',
+        bearbeiter: widget.currentUser,
+        wiedervorlage: _wiedervorlageController.text.isNotEmpty
+            ? DateTime.tryParse(_wiedervorlageController.text)
+            : null,
+        typ: _typController.text,
+        stadium: _stadiumController.text,
+        kontaktquelle: _kontaktquelle ?? '',
+        erledigt: widget.existingEntry?.erledigt ?? false,
+      );
+
+      try {
+        if (widget.existingEntry != null) {
+          await ApiService().updateCrmEntry(entry);
+        } else {
+          await ApiService().createCrmEntry(entry);
+        }
+
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("✅ CRM Eintrag gespeichert")),
+        );
+        Navigator.pop(context);
+      } catch (e) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("❌ Fehler beim Speichern: $e")),
+        );
+      }
     }
   }
 
@@ -82,13 +152,15 @@ class _CrmEntryEditFormState extends State<CrmEntryEditForm> {
     _krankheitController.dispose();
     _wiedervorlageController.dispose();
     _todoController.dispose();
+    _typController.dispose();
+    _stadiumController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text("CRM Eintrag bearbeiten")),
+      appBar: AppBar(title: Text(widget.existingEntry == null ? "Neuer CRM Eintrag" : "CRM Eintrag bearbeiten")),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Form(
@@ -103,56 +175,17 @@ class _CrmEntryEditFormState extends State<CrmEntryEditForm> {
                 value: _titel,
                 onChanged: (val) => setState(() => _titel = val),
               ),
-              TextFormField(
-                controller: _vornameController,
-                decoration: const InputDecoration(labelText: 'Vorname'),
-                validator: (val) => val!.isEmpty ? 'Pflichtfeld' : null,
-              ),
-              TextFormField(
-                controller: _nachnameController,
-                decoration: const InputDecoration(labelText: 'Nachname'),
-                validator: (val) => val!.isEmpty ? 'Pflichtfeld' : null,
-              ),
-              TextFormField(
-                controller: _strasseController,
-                decoration: const InputDecoration(labelText: 'Straße'),
-              ),
-              TextFormField(
-                controller: _hausnummerController,
-                decoration: const InputDecoration(labelText: 'Hausnummer'),
-              ),
-              TextFormField(
-                controller: _plzController,
-                decoration: const InputDecoration(labelText: 'PLZ'),
-              ),
-              TextFormField(
-                controller: _ortController,
-                decoration: const InputDecoration(labelText: 'Ort'),
-              ),
-              TextFormField(
-                controller: _landController,
-                decoration: const InputDecoration(labelText: 'Land'),
-              ),
-              TextFormField(
-                controller: _emailController,
-                decoration: const InputDecoration(labelText: 'E-Mail'),
-                keyboardType: TextInputType.emailAddress,
-              ),
-              TextFormField(
-                controller: _mobilController,
-                decoration: const InputDecoration(labelText: 'Mobilnummer'),
-                keyboardType: TextInputType.phone,
-              ),
-              TextFormField(
-                controller: _festnetzController,
-                decoration: const InputDecoration(labelText: 'Festnetznummer'),
-                keyboardType: TextInputType.phone,
-              ),
-              TextFormField(
-                controller: _krankheitController,
-                decoration: const InputDecoration(labelText: 'Krankheitsstatus'),
-                maxLines: 4,
-              ),
+              TextFormField(controller: _vornameController, decoration: const InputDecoration(labelText: 'Vorname')),
+              TextFormField(controller: _nachnameController, decoration: const InputDecoration(labelText: 'Nachname')),
+              TextFormField(controller: _strasseController, decoration: const InputDecoration(labelText: 'Straße')),
+              TextFormField(controller: _hausnummerController, decoration: const InputDecoration(labelText: 'Hausnummer')),
+              TextFormField(controller: _plzController, decoration: const InputDecoration(labelText: 'PLZ')),
+              TextFormField(controller: _ortController, decoration: const InputDecoration(labelText: 'Ort')),
+              TextFormField(controller: _landController, decoration: const InputDecoration(labelText: 'Land')),
+              TextFormField(controller: _emailController, decoration: const InputDecoration(labelText: 'E-Mail')),
+              TextFormField(controller: _mobilController, decoration: const InputDecoration(labelText: 'Mobil')),
+              TextFormField(controller: _festnetzController, decoration: const InputDecoration(labelText: 'Festnetz')),
+              TextFormField(controller: _krankheitController, decoration: const InputDecoration(labelText: 'Krankheitsstatus')),
               DropdownButtonFormField<String>(
                 decoration: const InputDecoration(labelText: 'Status'),
                 items: _statusOptions.map((s) => DropdownMenuItem(value: s, child: Text(s))).toList(),
@@ -165,9 +198,11 @@ class _CrmEntryEditFormState extends State<CrmEntryEditForm> {
                 value: _kontaktquelle,
                 onChanged: (val) => setState(() => _kontaktquelle = val),
               ),
+              TextFormField(controller: _typController, decoration: const InputDecoration(labelText: 'Typ')),
+              TextFormField(controller: _stadiumController, decoration: const InputDecoration(labelText: 'Stadium')),
               TextFormField(
                 controller: _wiedervorlageController,
-                decoration: const InputDecoration(labelText: 'Wiedervorlage (optional)'),
+                decoration: const InputDecoration(labelText: 'Wiedervorlage (YYYY-MM-DD)'),
               ),
               TextFormField(
                 controller: _todoController,
@@ -182,20 +217,32 @@ class _CrmEntryEditFormState extends State<CrmEntryEditForm> {
               ),
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
-                children: _todoItems.map((todo) => Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Expanded(child: Text(todo)),
-                    IconButton(
-                      icon: const Icon(Icons.delete),
-                      onPressed: () {
-                        setState(() {
-                          _todoItems.remove(todo);
-                        });
-                      },
-                    )
-                  ],
-                )).toList(),
+                children: _todoItems.map((todo) {
+                  return Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Expanded(
+                        child: CheckboxListTile(
+                          title: Text(todo.text),
+                          value: todo.done,
+                          onChanged: (val) {
+                            setState(() {
+                              todo.done = val ?? false;
+                            });
+                          },
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.delete),
+                        onPressed: () {
+                          setState(() {
+                            _todoItems.remove(todo);
+                          });
+                        },
+                      )
+                    ],
+                  );
+                }).toList(),
               ),
               const SizedBox(height: 24),
               ElevatedButton(
