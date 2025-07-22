@@ -4,6 +4,7 @@ from sqlalchemy import Column, Integer, String, Date, Boolean, Table, ForeignKey
 from sqlalchemy.orm import relationship
 from database import Base
 import datetime
+from sqlalchemy import JSON
 
 # =======================
 # 🔐 User-Modell
@@ -53,3 +54,25 @@ class Label(Base):
     name = Column(String(50), unique=True)
 
     notes = relationship("Note", secondary=note_label, back_populates="labels")
+
+class CrmEntry(Base):
+    __tablename__ = "crm_entries"
+
+    id = Column(String(36), primary_key=True, index=True)  # UUID Länge 36
+    anfrage_datum = Column(DateTime)
+    titel = Column(String(255))
+    vorname = Column(String(100))
+    nachname = Column(String(100))
+    adresse = Column(String(255))
+    email = Column(String(100), index=True)
+    mobil = Column(String(50))
+    festnetz = Column(String(50))
+    krankheitsstatus = Column(String(100))
+    todos = Column(JSON, nullable=True, )  # JSON als String, Länge optional je nach DB
+    status = Column(String(100))
+    bearbeiter = Column(String(100))
+    wiedervorlage = Column(DateTime, nullable=True)
+    typ = Column(String(50), nullable=True)
+    stadium = Column(String(100))
+    kontaktquelle = Column(String(100))
+    erledigt = Column(Boolean, default=False)

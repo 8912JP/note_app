@@ -1,8 +1,8 @@
 # schemas.py
-
 from pydantic import BaseModel
 from typing import List, Optional
-import datetime
+from datetime import datetime, date
+
 
 # ---------- Label ----------
 
@@ -27,7 +27,7 @@ class NoteBase(BaseModel):
     email: Optional[str] = None
     telephone: Optional[str] = None
     note_text: str
-    custom_date: Optional[datetime.date] = None
+    custom_date: Optional[date] = None
     gender: str
     labels: List[str] = []  # beim Erstellen nur Namen
 
@@ -40,7 +40,7 @@ class NoteUpdate(NoteBase):
 class NoteOut(NoteBase):
     id: int
     is_done: bool
-    created_at: datetime.datetime
+    created_at: datetime
     labels: List[Label]
 
     class Config:
@@ -68,4 +68,53 @@ class Token(BaseModel):
 
 class TokenData(BaseModel):
     username: Optional[str] = None
-    
+
+class ToDoItem(BaseModel):
+    text: str
+    done: bool = False
+
+class CrmEntryBase(BaseModel):
+    anfrage_datum: Optional[datetime]
+    titel: str
+    vorname: str
+    nachname: str
+    adresse: str
+    email: str
+    mobil: str
+    festnetz: str
+    krankheitsstatus: str
+    todos: Optional[List[ToDoItem]] = []
+    status: str
+    bearbeiter: str
+    wiedervorlage: Optional[datetime]
+    typ: Optional[str]
+    stadium: str
+    kontaktquelle: str
+    erledigt: bool = False
+
+class CrmEntryCreate(CrmEntryBase):
+    id: str  # Wird vom Frontend mitgegeben (z. B. UUID)
+
+class CrmEntryOut(CrmEntryBase):
+    id: str
+
+    class Config:
+        orm_mode = True
+
+class CrmEntryUpdate(BaseModel):
+    titel: Optional[str]
+    vorname: Optional[str]
+    nachname: Optional[str]
+    adresse: Optional[str]
+    email: Optional[str]
+    mobil: Optional[str]
+    festnetz: Optional[str]
+    krankheitsstatus: Optional[str]
+    todos: Optional[List[ToDoItem]]
+    status: Optional[str]
+    bearbeiter: Optional[str]
+    wiedervorlage: Optional[datetime]
+    typ: Optional[str]
+    stadium: Optional[str]
+    kontaktquelle: Optional[str]
+    erledigt: Optional[bool]

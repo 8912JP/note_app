@@ -12,9 +12,11 @@ from auth import decode_token
 from auth import get_user_by_username
 from typing import List
 from sqlalchemy.orm import Session
-from models import Note
+from models import Note, User, CrmEntry
 from grouping import group_notes
 from schemas import NoteOut
+from schemas import CrmEntryCreate, CrmEntryOut, CrmEntryUpdate
+import uuid
 
 app = FastAPI()
 Base.metadata.create_all(bind=engine)
@@ -89,6 +91,7 @@ def get_grouped_notes(db: Session = Depends(get_db)):
 
 
 clients: List[WebSocket] = []
+crm_clients: List[WebSocket] = []
 
 @app.get("/notes/{note_id}", response_model=schemas.NoteOut)
 def get_note(note_id: int, db: Session = Depends(get_db)):
@@ -131,6 +134,38 @@ async def websocket_endpoint(websocket: WebSocket):
         clients.remove(websocket)
         db.close()
 
+@app.websocket("/ws/crm")
+async def crm_websocket(websocket: WebSocket):
+    token = websocket.query_params.get("token")
+    if not token:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+
+    payload = decode_token(token)
+    if payload is None:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+
+    username = payload.get("sub")
+    if not username:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+
+    db = SessionLocal()
+    user = get_user_by_username(db, username)
+    if not user:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+
+    await websocket.accept()
+    crm_clients.append(websocket)
+    try:
+        while True:
+            await websocket.receive_text()  # Nicht zwingend nötig, aber hält Verbindung offen
+    except WebSocketDisconnect:
+        crm_clients.remove(websocket)
+        db.close()
+
 async def broadcast_update(data: dict):
     to_remove = []
     for client in clients:
@@ -140,3 +175,29 @@ async def broadcast_update(data: dict):
             to_remove.append(client)
     for c in to_remove:
         clients.remove(c)
+
+async def broadcast_crm_update(data: dict):
+    to_remove = []
+    for client in crm_clients:
+        try:
+            await client.send_json(data)
+        except:
+            to_remove.append(client)
+    for c in to_remove:
+        crm_clients.remove(c)
+
+@app.get("/crm/", response_model=List[CrmEntryOut])
+def get_crm_entries(db: Session = Depends(get_db)):
+    return crud.get_all_crm_entries(db)
+
+@app.post("/crm/", response_model=CrmEntryOut, status_code=201)
+async def create_crm_entry(entry: CrmEntryCreate, db: Session = Depends(get_db)):
+    created = crud.create_crm_entry(db, entry)
+    await broadcast_crm_update({"event": "crm_created", "id": created.id})
+    return created
+
+@app.put("/crm/{entry_id}", response_model=CrmEntryOut)
+async def update_crm_entry(entry_id: str, entry: CrmEntryUpdate, db: Session = Depends(get_db)):
+    updated = crud.update_crm_entry(db, entry_id, entry)
+    await broadcast_crm_update({"event": "crm_updated", "id": entry_id})
+    return updated

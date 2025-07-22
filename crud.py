@@ -1,7 +1,10 @@
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
+from fastapi import HTTPException
 import models
 import schemas
+from models import CrmEntry
+from schemas import CrmEntryCreate, CrmEntryUpdate
 
 # ============================
 # 📋 Alle Notizen
@@ -100,3 +103,31 @@ def delete_note(db: Session, note_id: int):
 
 def get_note_by_id(db: Session, note_id: int):
     return db.query(models.Note).filter(models.Note.id == note_id).first()
+
+def get_all_crm_entries(db: Session):
+    return db.query(CrmEntry).all()
+
+def create_crm_entry(db: Session, entry: CrmEntryCreate):
+    # 🛠️ ToDoItems als Liste von Dicts extrahieren:
+    entry_data = entry.dict()
+    if entry_data.get("todos"):
+        entry_data["todos"] = [todo.dict() for todo in entry.todos]
+
+    db_entry = CrmEntry(**entry_data)
+    db.add(db_entry)
+    db.commit()
+    db.refresh(db_entry)
+    return db_entry
+
+
+def update_crm_entry(db: Session, entry_id: str, updated_entry: CrmEntryUpdate):
+    db_entry = db.query(models.CrmEntry).filter(models.CrmEntry.id == entry_id).first()
+    if not db_entry:
+        raise HTTPException(status_code=404, detail="Eintrag nicht gefunden")
+
+    for key, value in updated_entry.dict(exclude_unset=True).items():
+        setattr(db_entry, key, value)
+
+    db.commit()
+    db.refresh(db_entry)
+    return db_entry
