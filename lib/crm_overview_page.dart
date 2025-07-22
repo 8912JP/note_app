@@ -76,8 +76,7 @@ class CrmEntryProvider extends ChangeNotifier {
 
 class CRMOverviewPage extends StatefulWidget {
   final ApiService apiService;
-  const CRMOverviewPage({super.key, required this.apiService});
-
+  const CRMOverviewPage({Key? key, required this.apiService}) : super(key: key);
 
   @override
   _CRMOverviewPageState createState() => _CRMOverviewPageState();
@@ -85,30 +84,56 @@ class CRMOverviewPage extends StatefulWidget {
 
 class _CRMOverviewPageState extends State<CRMOverviewPage> {
   WebSocketChannel? _channel;
-  String _searchText = '';
   DateTimeRange? _selectedDateRange;
 
+  bool _initialized = false; // Damit loadEntries & WS nur einmal starten
+
   @override
-void initState() {
-  super.initState();
+  void didChangeDependencies() {
+    super.didChangeDependencies();
 
-  WidgetsBinding.instance.addPostFrameCallback((_) {
-    final provider = Provider.of<CrmEntryProvider>(context, listen: false);
-    provider.loadEntries(widget.apiService);
-    connectToCrmWebSocket();
-  });
-}
+    if (!_initialized) {
+      final provider = Provider.of<CrmEntryProvider>(context, listen: false);
+      provider.loadEntries(widget.apiService);
+      _connectToCrmWebSocket();
+      _initialized = true;
+    }
+  }
 
-@override
-Widget build(BuildContext context) {
-  return ChangeNotifierProvider(
-    create: (_) => CrmEntryProvider(),
-    child: Scaffold(
-      // ...
-      body: const CrmDataTableWrapper(),
-    ),
-  );
-}
+  void _connectToCrmWebSocket() {
+    if (_channel != null) return; // Verhindere Mehrfachverbindungen
+
+    final token = widget.apiService.accessToken;
+    if (token == null) {
+      print("❌ Kein Token für WebSocket");
+      return;
+    }
+
+    final uri = Uri.parse('ws://iqmedix.cloud:8000/ws/crm?token=$token');
+    _channel = WebSocketChannel.connect(uri);
+
+    _channel!.stream.listen(
+      (message) {
+        try {
+          final data = json.decode(message);
+          print("📥 CRM-Event: $data");
+          final event = data['event'];
+          if (event == 'crm_created' || event == 'crm_updated') {
+            final provider = Provider.of<CrmEntryProvider>(context, listen: false);
+            provider.loadEntries(widget.apiService);
+          }
+        } catch (e) {
+          print("❌ Fehler beim Parsen der CRM WebSocket Nachricht: $e");
+        }
+      },
+      onError: (error) {
+        print("❌ WebSocket Fehler: $error");
+      },
+      onDone: () {
+        print("🔌 WebSocket Verbindung geschlossen");
+      },
+    );
+  }
 
   @override
   void dispose() {
@@ -116,150 +141,106 @@ Widget build(BuildContext context) {
     super.dispose();
   }
 
-  void connectToCrmWebSocket(BuildContext context) {
-  final token = widget.apiService.accessToken;
-  if (token == null) {
-    print("❌ Kein Token für WebSocket");
-    return;
+  void _showFilterDialog() {
+    DateTimeRange? tempRange = _selectedDateRange;
+
+    showDialog(
+      context: context,
+      builder: (_) => StatefulBuilder(
+        builder: (ctx, setStateDialog) => AlertDialog(
+          title: const Text('Datum filtern'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ElevatedButton(
+                onPressed: () async {
+                  final picked = await showDateRangePicker(
+                    context: ctx,
+                    firstDate: DateTime(2000),
+                    lastDate: DateTime(2100),
+                    initialDateRange: tempRange,
+                  );
+                  if (picked != null) setStateDialog(() => tempRange = picked);
+                },
+                child: Text(tempRange == null
+                    ? 'Datum auswählen'
+                    : '${tempRange!.start.day}.${tempRange!.start.month}.${tempRange!.start.year} – ${tempRange!.end.day}.${tempRange!.end.month}.${tempRange!.end.year}'),
+              ),
+              if (tempRange != null)
+                TextButton(
+                  onPressed: () {
+                    Provider.of<CrmEntryProvider>(context, listen: false).selectedDateRange = null;
+                    setState(() => _selectedDateRange = null);
+                    Navigator.pop(ctx);
+                  },
+                  child: const Text('Zurücksetzen'),
+                ),
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Abbrechen')),
+            TextButton(
+              onPressed: () {
+                Provider.of<CrmEntryProvider>(context, listen: false).selectedDateRange = tempRange;
+                setState(() => _selectedDateRange = tempRange);
+                Navigator.pop(ctx);
+              },
+              child: const Text('Anwenden'),
+            ),
+          ],
+        ),
+      ),
+    );
   }
-
-  final uri = Uri.parse('ws://iqmedix.cloud:8000/ws/crm?token=$token');
-  _channel = WebSocketChannel.connect(uri);
-
-  _channel!.stream.listen(
-    (message) {
-      try {
-        final data = json.decode(message);
-        print("📥 CRM-Event: $data");
-        final event = data['event'];
-        if (event == 'crm_created' || event == 'crm_updated') {
-          final provider = Provider.of<CrmEntryProvider>(context, listen: false);
-          provider.loadEntries(widget.apiService);
-        }
-      } catch (e) {
-        print("❌ Fehler beim Parsen der CRM WebSocket Nachricht: $e");
-      }
-    },
-    onError: (error) {
-      print("❌ WebSocket Fehler: $error");
-    },
-    onDone: () {
-      print("🔌 WebSocket Verbindung geschlossen");
-    },
-  );
-}
 
   @override
   Widget build(BuildContext context) {
-    return ChangeNotifierProvider(
-  create: (_) => CrmEntryProvider(),
-  builder: (context, child) {
-  final provider = Provider.of<CrmEntryProvider>(context, listen: false);
-  provider.loadEntries(widget.apiService);
-
-  connectToCrmWebSocket(context); // ✅ Übergib den context hier
-
-  return child!;
-},
-  child: Scaffold(
-    appBar: AppBar(
-  title: const Text('CRM Übersicht'),
-  actions: [
-    IconButton(
-      icon: const Icon(Icons.filter_alt),
-      onPressed: _showFilterDialog,
-    ),
-  ],
-  bottom: PreferredSize(
-    preferredSize: const Size.fromHeight(56),
-    child: Padding(
-      padding: const EdgeInsets.all(8),
-      child: TextField(
-        decoration: const InputDecoration(
-          hintText: 'Suche...',
-          prefixIcon: Icon(Icons.search),
-          border: OutlineInputBorder(),
-        ),
-        onChanged: (value) {
-          Provider.of<CrmEntryProvider>(context, listen: false).searchText = value;
-        },
-      ),
-    ),
-  ),
-),
-    body: CrmDataTableWrapper(),
-    floatingActionButton: FloatingActionButton(
-      onPressed: () {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => CrmEntryEditForm(
-              currentUser: ApiService().loggedInUser ?? 'Unbekannt',
-            ),
-          ),
-        );
-      },
-      child: const Icon(Icons.add),
-    ),
-  ),
-);
-  }
-void _showFilterDialog() {
-  DateTimeRange? tempRange = _selectedDateRange;
-
-  showDialog(
-    context: context,
-    builder: (_) => StatefulBuilder(
-      builder: (ctx, setStateDialog) => AlertDialog(
-        title: const Text('Datum filtern'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ElevatedButton(
-              onPressed: () async {
-                final picked = await showDateRangePicker(
-                  context: ctx,
-                  firstDate: DateTime(2000),
-                  lastDate: DateTime(2100),
-                  initialDateRange: tempRange,
-                );
-                if (picked != null) setStateDialog(() => tempRange = picked);
-              },
-              child: Text(tempRange == null
-                  ? 'Datum auswählen'
-                  : '${tempRange!.start.day}.${tempRange!.start.month}.${tempRange!.start.year} – ${tempRange!.end.day}.${tempRange!.end.month}.${tempRange!.end.year}'),
-            ),
-            if (tempRange != null)
-              TextButton(
-                onPressed: () {
-  Provider.of<CrmEntryProvider>(context, listen: false).selectedDateRange = tempRange;
-  Navigator.pop(ctx);
-},
-                child: const Text('Zurücksetzen'),
-              ),
-          ],
-        ),
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('CRM Übersicht'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Abbrechen')),
-          TextButton(
-            onPressed: () {
-              setState(() {
-                _selectedDateRange = tempRange;
-              });
-              Navigator.pop(ctx);
-            },
-            child: const Text('Anwenden'),
+          IconButton(
+            icon: const Icon(Icons.filter_alt),
+            onPressed: _showFilterDialog,
           ),
         ],
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(56),
+          child: Padding(
+            padding: const EdgeInsets.all(8),
+            child: TextField(
+              decoration: const InputDecoration(
+                hintText: 'Suche...',
+                prefixIcon: Icon(Icons.search),
+                border: OutlineInputBorder(),
+              ),
+              onChanged: (value) {
+                Provider.of<CrmEntryProvider>(context, listen: false).searchText = value;
+              },
+            ),
+          ),
+        ),
       ),
-    ),
-  );
-}  
-
+      body: const CrmDataTableWrapper(),
+      floatingActionButton: FloatingActionButton(
+        onPressed: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => CrmEntryEditForm(
+                currentUser: widget.apiService.loggedInUser ?? 'Unbekannt',
+              ),
+            ),
+          );
+        },
+        child: const Icon(Icons.add),
+      ),
+    );
+  }
 }
 
 class CrmDataTableWrapper extends StatelessWidget {
-  const CrmDataTableWrapper({super.key});
+  const CrmDataTableWrapper({Key? key}) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
@@ -267,7 +248,6 @@ class CrmDataTableWrapper extends StatelessWidget {
 
     final filteredEntries = provider.filteredEntries;
 
-    // ... Rest bleibt gleich, nur `provider.filteredEntries` verwenden
     return LayoutBuilder(
       builder: (context, constraints) {
         return SingleChildScrollView(
@@ -290,7 +270,7 @@ class CrmDataTableWrapper extends StatelessWidget {
                 sortColumnIndex: provider.sortColumnIndex,
                 sortAscending: provider.sortAscending,
                 columns: _buildColumns(provider),
-                source: CrmDataSource(filteredEntries, context), // NUR gefilterte Daten hier
+                source: CrmDataSource(filteredEntries, context),
               ),
             ),
           ),
@@ -309,16 +289,9 @@ class CrmDataTableWrapper extends StatelessWidget {
       DataColumn(label: const Text('E-Mail'), onSort: (i, a) => provider.sortBy(i, (e) => e.email, a)),
       DataColumn(label: const Text('Mobil'), onSort: (i, a) => provider.sortBy(i, (e) => e.mobil, a)),
       DataColumn(label: const Text('Festnetz'), onSort: (i, a) => provider.sortBy(i, (e) => e.festnetz, a)),
-      DataColumn(label: const Text('Typ'), onSort: (i, a) => provider.sortBy(i, (e) => e.typ ?? '-', a)),
-      DataColumn(label: const Text('Stadium'), onSort: (i, a) => provider.sortBy(i, (e) => e.stadium, a)),
-      DataColumn(label: const Text('Krankheitsstatus'), onSort: (i, a) => provider.sortBy(i, (e) => e.krankheitsstatus.length, a)),
-      DataColumn(label: const Text('ToDos'), onSort: (i, a) => provider.sortBy(i, (e) => e.todos.length, a)),
-      DataColumn(label: const Text('Bearbeiter'), onSort: (i, a) => provider.sortBy(i, (e) => e.bearbeiter, a)),
-      DataColumn(label: const Text('Kontaktquelle'), onSort: (i, a) => provider.sortBy(i, (e) => e.kontaktquelle, a)),
       DataColumn(label: const Text('Status'), onSort: (i, a) => provider.sortBy(i, (e) => e.status, a)),
-      DataColumn(label: const Text('Erledigt'), onSort: (i, a) => provider.sortBy(i, (e) => e.erledigt.toString(), a)),
-      DataColumn(label: const Text('Wiedervorlage'), onSort: (i, a) => provider.sortBy(i, (e) => e.wiedervorlage ?? DateTime(1900), a)),
-      const DataColumn(label: Text('Aktionen')),
+      DataColumn(label: const Text('Erledigt')),
+      DataColumn(label: const Text('Aktionen')),
     ];
   }
 }
@@ -332,83 +305,74 @@ class CrmDataSource extends DataTableSource {
   @override
   DataRow getRow(int index) {
     if (index >= entries.length) return const DataRow(cells: []);
-    final e = entries[index];
+
+    final entry = entries[index];
 
     return DataRow.byIndex(
       index: index,
       cells: [
-        DataCell(_wrapText(_formatDate(e.anfrageDatum))),
-        DataCell(_wrapText(e.titel)),
-        DataCell(_wrapText(e.vorname)),
-        DataCell(_wrapText(e.nachname)),
-        DataCell(_wrapText(e.adresse)),
-        DataCell(_wrapText(e.email)),
-        DataCell(_wrapText(e.mobil)),
-        DataCell(_wrapText(e.festnetz)),
-        DataCell(_wrapText(e.typ ?? '-')),
-        DataCell(_wrapText(e.stadium)),
-        DataCell(_wrapText(e.krankheitsstatus)),
-        DataCell(_wrapText(e.todoSummary)), // z.B. "3 offene ToDos"
-        DataCell(_wrapText(e.bearbeiter)),
-        DataCell(_wrapText(e.kontaktquelle)),
-        DataCell(_wrapText(e.status)),
-        DataCell(Checkbox(
-          value: e.erledigt,
-          onChanged: (val) {
-            Provider.of<CrmEntryProvider>(context, listen: false).toggleErledigt(e.id, val ?? false);
-          },
-        )),
-        DataCell(_wrapText(_formatDate(e.wiedervorlage))),
-        DataCell(Row(
-          children: [
-            IconButton(
-              icon: const Icon(Icons.edit),
-              onPressed: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) => CrmEntryEditForm(
-                      existingEntry: e,                    // ✅ Übergabe
-                      currentUser: ApiService().loggedInUser!
-                      // Optional: Bestehenden Eintrag als Argument übergeben
+        DataCell(Text('${entry.anfrageDatum.day}.${entry.anfrageDatum.month}.${entry.anfrageDatum.year}')),
+        DataCell(Text(entry.titel)),
+        DataCell(Text(entry.vorname)),
+        DataCell(Text(entry.nachname)),
+        DataCell(Text(entry.adresse)),
+        DataCell(Text(entry.email)),
+        DataCell(Text(entry.mobil)),
+        DataCell(Text(entry.festnetz)),
+        DataCell(Text(entry.status)),
+        DataCell(
+          Checkbox(
+            value: entry.erledigt,
+            onChanged: (value) {
+              if (value == null) return;
+              final provider = Provider.of<CrmEntryProvider>(context, listen: false);
+              provider.toggleErledigt(entry.id, value);
+            },
+          ),
+        ),
+        DataCell(
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              IconButton(
+                icon: const Icon(Icons.edit),
+                tooltip: 'Bearbeiten',
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => CrmEntryEditForm(currentUser: 'Unbekannt', existingEntry: entry),
                     ),
-                  ),
-                );
-              },
-            ),
-            IconButton(
-              icon: const Icon(Icons.note_add),
-              tooltip: 'Notiz aus CRM erstellen',
-              onPressed: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) => FormPage(
-                      fromCrmEntry: e,                    // ✅ Übergabe    
-      ),
-    ));
-  },
-),
-          ],
-        )),
+                  );
+                },
+              ),
+              IconButton(
+                icon: const Icon(Icons.delete),
+                tooltip: 'Löschen',
+                onPressed: () {
+                  // TODO: Lösch-Logik ergänzen
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Löschen nicht implementiert')),
+                  );
+                },
+              ),
+              IconButton(
+                icon: const Icon(Icons.note_add),
+                tooltip: 'Notiz aus CRM erstellen',
+                onPressed: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => FormPage(fromCrmEntry: entry),
+                    ),
+                  );
+                },
+              )
+
+            ],
+          ),
+        ),
       ],
     );
-  }
-
-  static Widget _wrapText(String text, {double minWidth = 100, double maxWidth = 240, int maxLines = 6}) {
-    return ConstrainedBox(
-      constraints: BoxConstraints(minWidth: minWidth, maxWidth: maxWidth),
-      child: Text(
-        text,
-        overflow: TextOverflow.ellipsis,
-        softWrap: true,
-        maxLines: maxLines,
-        style: const TextStyle(height: 1.4),
-      ),
-    );
-  }
-
-  static String _formatDate(DateTime? dt) {
-    if (dt == null) return '-';
-    return '${dt.day.toString().padLeft(2, '0')}.${dt.month.toString().padLeft(2, '0')}.${dt.year}';
   }
 
   @override

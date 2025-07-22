@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'notes_overview_page.dart';
 import 'grouped_notes_page.dart';
 import 'api_service.dart';
@@ -65,7 +66,10 @@ class _NotesHomePageState extends State<NotesHomePage> with SingleTickerProvider
         children: [
           NotesOverviewPage(apiService: widget.apiService),
           GroupedNotesPage(apiService: widget.apiService),
-          CRMOverviewPage(apiService: widget.apiService),
+          ChangeNotifierProvider(
+            create: (_) => CrmEntryProvider(),
+            child: CRMOverviewPage(apiService: widget.apiService),
+          ),
         ],
       ),
     );
