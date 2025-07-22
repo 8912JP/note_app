@@ -240,27 +240,26 @@ class _CRMOverviewPageState extends State<CRMOverviewPage> {
 }
 
 class CrmDataTableWrapper extends StatelessWidget {
-  const CrmDataTableWrapper({Key? key}) : super(key: key);
+  const CrmDataTableWrapper({super.key});
 
   @override
   Widget build(BuildContext context) {
     final provider = Provider.of<CrmEntryProvider>(context);
-
     final filteredEntries = provider.filteredEntries;
 
     return LayoutBuilder(
       builder: (context, constraints) {
         return SingleChildScrollView(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.fromLTRB(8, 8, 8, 80),
           child: ConstrainedBox(
             constraints: BoxConstraints(minWidth: constraints.maxWidth),
             child: Theme(
               data: Theme.of(context).copyWith(
                 dataTableTheme: const DataTableThemeData(
                   dataRowMinHeight: 48,
-                  dataRowMaxHeight: 144,
+                  dataRowMaxHeight: 94,
                   headingRowHeight: 44,
-                  horizontalMargin: 4,
+                  horizontalMargin: 8,
                   columnSpacing: 8,
                 ),
               ),
@@ -289,9 +288,16 @@ class CrmDataTableWrapper extends StatelessWidget {
       DataColumn(label: const Text('E-Mail'), onSort: (i, a) => provider.sortBy(i, (e) => e.email, a)),
       DataColumn(label: const Text('Mobil'), onSort: (i, a) => provider.sortBy(i, (e) => e.mobil, a)),
       DataColumn(label: const Text('Festnetz'), onSort: (i, a) => provider.sortBy(i, (e) => e.festnetz, a)),
+      DataColumn(label: const Text('Typ'), onSort: (i, a) => provider.sortBy(i, (e) => e.typ ?? '-', a)),
+      DataColumn(label: const Text('Stadium'), onSort: (i, a) => provider.sortBy(i, (e) => e.stadium, a)),
+      DataColumn(label: const Text('Krankheitsstatus'), onSort: (i, a) => provider.sortBy(i, (e) => e.krankheitsstatus.length, a)),
+      DataColumn(label: const Text('ToDos'), onSort: (i, a) => provider.sortBy(i, (e) => e.todos.length, a)),
+      DataColumn(label: const Text('Bearbeiter'), onSort: (i, a) => provider.sortBy(i, (e) => e.bearbeiter, a)),
+      DataColumn(label: const Text('Kontaktquelle'), onSort: (i, a) => provider.sortBy(i, (e) => e.kontaktquelle, a)),
       DataColumn(label: const Text('Status'), onSort: (i, a) => provider.sortBy(i, (e) => e.status, a)),
-      DataColumn(label: const Text('Erledigt')),
-      DataColumn(label: const Text('Aktionen')),
+      DataColumn(label: const Text('Erledigt'), onSort: (i, a) => provider.sortBy(i, (e) => e.erledigt.toString(), a)),
+      DataColumn(label: const Text('Wiedervorlage'), onSort: (i, a) => provider.sortBy(i, (e) => e.wiedervorlage ?? DateTime(1900), a)),
+      const DataColumn(label: Text('Aktionen')),
     ];
   }
 }
@@ -305,54 +311,48 @@ class CrmDataSource extends DataTableSource {
   @override
   DataRow getRow(int index) {
     if (index >= entries.length) return const DataRow(cells: []);
-
-    final entry = entries[index];
+    final e = entries[index];
 
     return DataRow.byIndex(
       index: index,
       cells: [
-        DataCell(Text('${entry.anfrageDatum.day}.${entry.anfrageDatum.month}.${entry.anfrageDatum.year}')),
-        DataCell(Text(entry.titel)),
-        DataCell(Text(entry.vorname)),
-        DataCell(Text(entry.nachname)),
-        DataCell(Text(entry.adresse)),
-        DataCell(Text(entry.email)),
-        DataCell(Text(entry.mobil)),
-        DataCell(Text(entry.festnetz)),
-        DataCell(Text(entry.status)),
+        DataCell(_wrapText(_formatDate(e.anfrageDatum))),
+        DataCell(_wrapText(e.titel)),
+        DataCell(_wrapText(e.vorname)),
+        DataCell(_wrapText(e.nachname)),
+        DataCell(_wrapText(e.adresse)),
+        DataCell(_wrapText(e.email)),
+        DataCell(_wrapText(e.mobil)),
+        DataCell(_wrapText(e.festnetz)),
+        DataCell(_wrapText(e.typ ?? '-')),
+        DataCell(_wrapText(e.stadium)),
+        DataCell(_wrapText(e.krankheitsstatus)),
+        DataCell(_wrapText(e.todoSummary)), // Format z. B. "3 offene ToDos"
+        DataCell(_wrapText(e.bearbeiter)),
+        DataCell(_wrapText(e.kontaktquelle)),
+        DataCell(_wrapText(e.status)),
         DataCell(
           Checkbox(
-            value: entry.erledigt,
-            onChanged: (value) {
-              if (value == null) return;
-              final provider = Provider.of<CrmEntryProvider>(context, listen: false);
-              provider.toggleErledigt(entry.id, value);
+            value: e.erledigt,
+            onChanged: (val) {
+              Provider.of<CrmEntryProvider>(context, listen: false).toggleErledigt(e.id, val ?? false);
             },
           ),
         ),
+        DataCell(_wrapText(_formatDate(e.wiedervorlage))),
         DataCell(
           Row(
-            mainAxisSize: MainAxisSize.min,
             children: [
               IconButton(
                 icon: const Icon(Icons.edit),
-                tooltip: 'Bearbeiten',
                 onPressed: () {
-                  Navigator.push(
-                    context,
+                  Navigator.of(context).push(
                     MaterialPageRoute(
-                      builder: (_) => CrmEntryEditForm(currentUser: 'Unbekannt', existingEntry: entry),
+                      builder: (_) => CrmEntryEditForm(
+                        existingEntry: e,
+                        currentUser: ApiService().loggedInUser ?? 'Unbekannt',
+                      ),
                     ),
-                  );
-                },
-              ),
-              IconButton(
-                icon: const Icon(Icons.delete),
-                tooltip: 'Löschen',
-                onPressed: () {
-                  // TODO: Lösch-Logik ergänzen
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Löschen nicht implementiert')),
                   );
                 },
               ),
@@ -362,17 +362,34 @@ class CrmDataSource extends DataTableSource {
                 onPressed: () {
                   Navigator.of(context).push(
                     MaterialPageRoute(
-                      builder: (_) => FormPage(fromCrmEntry: entry),
+                      builder: (_) => FormPage(fromCrmEntry: e),
                     ),
                   );
                 },
-              )
-
+              ),
             ],
           ),
         ),
       ],
     );
+  }
+
+  static Widget _wrapText(String text, {double minWidth = 80, double maxWidth = 180, int maxLines = 6}) {
+    return ConstrainedBox(
+      constraints: BoxConstraints(minWidth: minWidth, maxWidth: maxWidth),
+      child: Text(
+        text,
+        overflow: TextOverflow.ellipsis,
+        softWrap: true,
+        maxLines: maxLines,
+        style: const TextStyle(height: 1.4),
+      ),
+    );
+  }
+
+  static String _formatDate(DateTime? dt) {
+    if (dt == null) return '-';
+    return '${dt.day.toString().padLeft(2, '0')}.${dt.month.toString().padLeft(2, '0')}.${dt.year}';
   }
 
   @override
