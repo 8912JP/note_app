@@ -17,6 +17,18 @@ class _LoginPageState extends State<LoginPage> {
   final TextEditingController _passwordController = TextEditingController();
 
   bool _isLoading = false;
+  bool _serverOnline = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkServer();
+  }
+
+  Future<void> _checkServer() async {
+    final ok = await widget.apiService.checkServerStatus();
+    setState(() => _serverOnline = ok);
+  }
 
   Future<void> _login() async {
     setState(() => _isLoading = true);
@@ -29,13 +41,13 @@ class _LoginPageState extends State<LoginPage> {
     setState(() => _isLoading = false);
 
     if (success) {
-  Navigator.pushReplacement(
-    context,
-    MaterialPageRoute(
-      builder: (context) => NotesHomePage(apiService: widget.apiService),
-    ),
-  );
-} else {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (context) => NotesHomePage(apiService: widget.apiService),
+        ),
+      );
+    } else {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Falscher Benutzername oder Passwort')),
       );
@@ -59,6 +71,31 @@ class _LoginPageState extends State<LoginPage> {
               decoration: const InputDecoration(labelText: 'Passwort'),
               obscureText: true,
             ),
+
+            Row(
+              children: [
+                Icon(
+                  _serverOnline ? Icons.cloud_done : Icons.cloud_off,
+                  color: _serverOnline ? Colors.green : Colors.red,
+                  size: 20,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  _serverOnline
+                      ? 'Server erreichbar'
+                      : 'Server nicht erreichbar',
+                  style: TextStyle(
+                    color: _serverOnline ? Colors.green : Colors.red,
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.refresh),
+                  tooltip: 'Neu prüfen',
+                  onPressed: _checkServer,
+                ),
+              ],
+            ),
+
             const SizedBox(height: 20),
             _isLoading
                 ? const CircularProgressIndicator()
@@ -71,7 +108,8 @@ class _LoginPageState extends State<LoginPage> {
                 Navigator.push(
                   context,
                   MaterialPageRoute(
-                    builder: (context) => RegisterPage(apiService: widget.apiService),
+                    builder: (context) =>
+                        RegisterPage(apiService: widget.apiService),
                   ),
                 );
               },
