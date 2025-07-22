@@ -339,7 +339,24 @@ class CrmDataSource extends DataTableSource {
             },
           ),
         ),
-        DataCell(_wrapText(_formatDate(e.wiedervorlage))),
+        DataCell(
+  Row(
+    children: [
+      Text(
+        _formatDate(e.wiedervorlage),
+        style: TextStyle(
+          color: _isDueDate(e.wiedervorlage) ? Colors.red : Colors.black,
+          fontWeight: _isDueDate(e.wiedervorlage) ? FontWeight.bold : FontWeight.normal,
+        ),
+      ),
+      if (_isDueDate(e.wiedervorlage))
+        const Padding(
+          padding: EdgeInsets.only(left: 6),
+          child: Icon(Icons.warning_amber_rounded, color: Colors.red, size: 18),
+        ),
+    ],
+  ),
+),
         DataCell(
           Row(
             children: [
@@ -374,7 +391,7 @@ class CrmDataSource extends DataTableSource {
     );
   }
 
-  static Widget _wrapText(String text, {double minWidth = 80, double maxWidth = 180, int maxLines = 6}) {
+  static Widget _wrapText(String text, {double minWidth = 80, double maxWidth = 170, int maxLines = 6}) {
     return ConstrainedBox(
       constraints: BoxConstraints(minWidth: minWidth, maxWidth: maxWidth),
       child: Text(
@@ -400,4 +417,11 @@ class CrmDataSource extends DataTableSource {
 
   @override
   int get selectedRowCount => 0;
+
+  bool _isDueDate(DateTime? date) {
+  if (date == null) return false;
+  final now = DateTime.now();
+  final today = DateTime(now.year, now.month, now.day);
+  return !date.isAfter(today);
+}
 }

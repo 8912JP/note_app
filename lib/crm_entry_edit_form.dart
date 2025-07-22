@@ -201,9 +201,31 @@ class _CrmEntryEditFormState extends State<CrmEntryEditForm> {
               TextFormField(controller: _typController, decoration: const InputDecoration(labelText: 'Typ')),
               TextFormField(controller: _stadiumController, decoration: const InputDecoration(labelText: 'Stadium')),
               TextFormField(
-                controller: _wiedervorlageController,
-                decoration: const InputDecoration(labelText: 'Wiedervorlage (YYYY-MM-DD)'),
-              ),
+  controller: _wiedervorlageController,
+  decoration: const InputDecoration(
+    labelText: 'Wiedervorlage (Datum auswählen)',
+    suffixIcon: Icon(Icons.calendar_today),
+  ),
+  readOnly: true, // Damit die Tastatur nicht erscheint
+  onTap: () async {
+    DateTime? initialDate;
+    if (_wiedervorlageController.text.isNotEmpty) {
+      initialDate = DateTime.tryParse(_wiedervorlageController.text);
+    }
+    final now = DateTime.now();
+    final pickedDate = await showDatePicker(
+      context: context,
+      initialDate: initialDate ?? now,
+      firstDate: DateTime(now.year - 5),
+      lastDate: DateTime(now.year + 5),
+    );
+    if (pickedDate != null) {
+      setState(() {
+        _wiedervorlageController.text = pickedDate.toIso8601String().split('T').first;
+      });
+    }
+  },
+),
               TextFormField(
                 controller: _todoController,
                 decoration: InputDecoration(
