@@ -95,7 +95,7 @@ class _CrmEntryEditFormState extends State<CrmEntryEditForm> {
   void _addToDoItem(String text) {
     if (text.trim().isNotEmpty) {
       setState(() {
-        _todoItems.add(ToDoItem(text: text.trim()));
+        _todoItems.add(ToDoItem(text: text.trim(), createdAt: DateTime.now()));
       });
       _todoController.clear();
     }
@@ -296,11 +296,24 @@ class _CrmEntryEditFormState extends State<CrmEntryEditForm> {
                     children: [
                       Expanded(
                         child: CheckboxListTile(
-                          title: Text(todo.text),
+                          title: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(todo.text),
+                              Text('Erstellt: ' + (todo.createdAt != null ? todo.createdAt!.toIso8601String().split('T').first : '-'), style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                              if (todo.done && todo.doneAt != null)
+                                Text('Erledigt: ' + todo.doneAt!.toIso8601String().split('T').first, style: const TextStyle(fontSize: 11, color: Colors.green)),
+                            ],
+                          ),
                           value: todo.done,
                           onChanged: (val) {
                             setState(() {
                               todo.done = val ?? false;
+                              if (todo.done) {
+                                todo.doneAt = DateTime.now();
+                              } else {
+                                todo.doneAt = null;
+                              }
                             });
                           },
                         ),

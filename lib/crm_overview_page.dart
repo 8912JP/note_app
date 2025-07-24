@@ -8,6 +8,7 @@ import 'crm_entry.dart';
 import 'api_service.dart';
 import 'crm_entry_edit_form.dart';
 import 'form_page.dart';
+import 'note.dart';
 
 class CrmEntryProvider extends ChangeNotifier {
   List<CrmEntry> _entries = [];
@@ -320,8 +321,9 @@ class CrmDataTableWrapper extends StatelessWidget {
       DataColumn(label: const Text('Bearbeiter'), onSort: (i, a) => provider.sortBy(i, (e) => e.bearbeiter ?? '', a)),
       DataColumn(label: const Text('Kontaktquelle'), onSort: (i, a) => provider.sortBy(i, (e) => e.kontaktquelle ?? '', a)),
       DataColumn(label: const Text('Status'), onSort: (i, a) => provider.sortBy(i, (e) => e.status ?? '', a)),
-      DataColumn(label: const Text('Erledigt'), onSort: (i, a) => provider.sortBy(i, (e) => e.erledigt.toString(), a)),
       DataColumn(label: const Text('Wiedervorlage'), onSort: (i, a) => provider.sortBy(i, (e) => e.wiedervorlage ?? DateTime(1900), a)),
+      // Verfolgungsspalte jetzt vor Aktionen:
+      DataColumn(label: const Text('Verfolgung')),
       const DataColumn(label: Text('Aktionen')),
       DataColumn(label: const Text('Infos'), onSort: (i, a) => provider.sortBy(i, (e) => e.infos ?? '', a)),
       DataColumn(label: const Text('Nachricht'), onSort: (i, a) => provider.sortBy(i, (e) => e.nachricht ?? '', a)),
@@ -376,48 +378,131 @@ class CrmDataSource extends DataTableSource {
     final adresse = [e.strasse ?? '', e.hausnummer ?? '', e.plz ?? '', e.ort ?? '', e.land ?? ''].where((v) => v.isNotEmpty).join(' ');
     return DataRow.byIndex(
       index: index,
+      // Kein spezieller Hintergrund mehr für abgeschlossene Zeilen
       cells: [
-        DataCell(_wrapText(_formatDate(e.anfrageDatum))),
-        DataCell(_wrapText(e.titel ?? '')),
-        DataCell(_wrapText(e.vorname ?? '')),
-        DataCell(_wrapText(e.nachname ?? '')),
-        DataCell(_wrapText(adresse)),
-        DataCell(_wrapText(e.email ?? '')),
-        DataCell(_wrapText(e.mobil ?? '')),
-        DataCell(_wrapText(e.festnetz ?? '')),
-        DataCell(_wrapText(e.typ ?? '-')),
-        DataCell(_wrapText(e.stadium ?? '')),
-        DataCell(_wrapText(e.krankheitsstatus ?? '')),
-        DataCell(_wrapText(e.todoSummary)),
-        DataCell(_wrapText(e.bearbeiter ?? '')),
-        DataCell(_wrapText(e.kontaktquelle ?? '')),
-        DataCell(_wrapText(e.status ?? '')),
+        DataCell(_wrapText(
+          _formatDate(e.anfrageDatum),
+          textStyle: (e.status ?? '').toLowerCase() == 'abgeschlossen'
+              ? const TextStyle(color: Colors.grey)
+              : null,
+        )),
+        DataCell(_wrapText(e.titel ?? '',
+          textStyle: (e.status ?? '').toLowerCase() == 'abgeschlossen'
+              ? const TextStyle(color: Colors.grey)
+              : null,
+        )),
+        DataCell(_wrapText(e.vorname ?? '',
+          textStyle: (e.status ?? '').toLowerCase() == 'abgeschlossen'
+              ? const TextStyle(color: Colors.grey)
+              : null,
+        )),
+        DataCell(_wrapText(e.nachname ?? '',
+          textStyle: (e.status ?? '').toLowerCase() == 'abgeschlossen'
+              ? const TextStyle(color: Colors.grey)
+              : null,
+        )),
+        DataCell(_wrapText(adresse,
+          textStyle: (e.status ?? '').toLowerCase() == 'abgeschlossen'
+              ? const TextStyle(color: Colors.grey)
+              : null,
+        )),
+        DataCell(_wrapText(e.email ?? '',
+          textStyle: (e.status ?? '').toLowerCase() == 'abgeschlossen'
+              ? const TextStyle(color: Colors.grey)
+              : null,
+        )),
+        DataCell(_wrapText(e.mobil ?? '',
+          textStyle: (e.status ?? '').toLowerCase() == 'abgeschlossen'
+              ? const TextStyle(color: Colors.grey)
+              : null,
+        )),
+        DataCell(_wrapText(e.festnetz ?? '',
+          textStyle: (e.status ?? '').toLowerCase() == 'abgeschlossen'
+              ? const TextStyle(color: Colors.grey)
+              : null,
+        )),
+        DataCell(_wrapText(e.typ ?? '-',
+          textStyle: (e.status ?? '').toLowerCase() == 'abgeschlossen'
+              ? const TextStyle(color: Colors.grey)
+              : null,
+        )),
+        DataCell(_wrapText(e.stadium ?? '',
+          textStyle: (e.status ?? '').toLowerCase() == 'abgeschlossen'
+              ? const TextStyle(color: Colors.grey)
+              : null,
+        )),
+        DataCell(_wrapText(e.krankheitsstatus ?? '',
+          textStyle: (e.status ?? '').toLowerCase() == 'abgeschlossen'
+              ? const TextStyle(color: Colors.grey)
+              : null,
+        )),
+        DataCell(_wrapText(e.todoSummary,
+          textStyle: (e.status ?? '').toLowerCase() == 'abgeschlossen'
+              ? const TextStyle(color: Colors.grey)
+              : null,
+        )),
+        DataCell(_wrapText(e.bearbeiter ?? '',
+          textStyle: (e.status ?? '').toLowerCase() == 'abgeschlossen'
+              ? const TextStyle(color: Colors.grey)
+              : null,
+        )),
+        DataCell(_wrapText(e.kontaktquelle ?? '',
+          textStyle: (e.status ?? '').toLowerCase() == 'abgeschlossen'
+              ? const TextStyle(color: Colors.grey)
+              : null,
+        )),
+        DataCell(_wrapText(e.status ?? '',
+          textStyle: (e.status ?? '').toLowerCase() == 'abgeschlossen'
+              ? const TextStyle(color: Colors.grey)
+              : null,
+        )),
         DataCell(
-          Checkbox(
-            value: e.erledigt,
-            onChanged: (val) {
-              Provider.of<CrmEntryProvider>(context, listen: false).toggleErledigt(e.id, val ?? false);
-            },
+          Row(
+            children: [
+              Text(
+                _formatDate(e.wiedervorlage),
+                style: TextStyle(
+                  color: (e.status ?? '').toLowerCase() == 'abgeschlossen'
+                      ? Colors.grey
+                      : (_isDueDate(e.wiedervorlage) ? Colors.red : Colors.black),
+                  fontWeight: _isDueDate(e.wiedervorlage) ? FontWeight.bold : FontWeight.normal,
+                ),
+              ),
+              if (_isDueDate(e.wiedervorlage))
+                const Padding(
+                  padding: EdgeInsets.only(left: 6),
+                  child: Icon(Icons.warning_amber_rounded, color: Colors.red, size: 18),
+                ),
+            ],
           ),
         ),
         DataCell(
-  Row(
-    children: [
-      Text(
-        _formatDate(e.wiedervorlage),
-        style: TextStyle(
-          color: _isDueDate(e.wiedervorlage) ? Colors.red : Colors.black,
-          fontWeight: _isDueDate(e.wiedervorlage) ? FontWeight.bold : FontWeight.normal,
+          Row(
+            children: [
+              _TrackingIcon(
+                crmEntryId: e.id,
+                trackingType: 'Kit',
+                icon: Icons.inventory,
+                colorIfNone: Colors.grey,
+                colorIfOpen: Colors.amber,
+                colorIfDone: Colors.green,
+                context: context,
+                crmEntry: e,
+              ),
+              const SizedBox(width: 8),
+              _TrackingIcon(
+                crmEntryId: e.id,
+                trackingType: 'Abholung',
+                icon: Icons.directions_car,
+                colorIfNone: Colors.grey,
+                colorIfOpen: Colors.amber,
+                colorIfDone: Colors.green,
+                context: context,
+                crmEntry: e,
+              ),
+            ],
+          ),
         ),
-      ),
-      if (_isDueDate(e.wiedervorlage))
-        const Padding(
-          padding: EdgeInsets.only(left: 6),
-          child: Icon(Icons.warning_amber_rounded, color: Colors.red, size: 18),
-        ),
-    ],
-  ),
-),
         DataCell(
           Row(
             children: [
@@ -453,13 +538,21 @@ class CrmDataSource extends DataTableSource {
             ],
           ),
         ),
-        DataCell(_wrapText(e.infos ?? '')),
-        DataCell(_wrapText(e.nachricht ?? '')),
+        DataCell(_wrapText(e.infos ?? '',
+          textStyle: (e.status ?? '').toLowerCase() == 'abgeschlossen'
+              ? const TextStyle(color: Colors.grey)
+              : null,
+        )),
+        DataCell(_wrapText(e.nachricht ?? '',
+          textStyle: (e.status ?? '').toLowerCase() == 'abgeschlossen'
+              ? const TextStyle(color: Colors.grey)
+              : null,
+        )),
       ],
     );
   }
 
-  static Widget _wrapText(String text, {double minWidth = 80, double maxWidth = 170, int maxLines = 6}) {
+  static Widget _wrapText(String text, {double minWidth = 80, double maxWidth = 170, int maxLines = 6, TextStyle? textStyle}) {
     return ConstrainedBox(
       constraints: BoxConstraints(minWidth: minWidth, maxWidth: maxWidth),
       child: Text(
@@ -467,7 +560,7 @@ class CrmDataSource extends DataTableSource {
         overflow: TextOverflow.ellipsis,
         softWrap: true,
         maxLines: maxLines,
-        style: const TextStyle(height: 1.4),
+        style: textStyle ?? const TextStyle(height: 1.4),
       ),
     );
   }
@@ -492,4 +585,107 @@ class CrmDataSource extends DataTableSource {
   final today = DateTime(now.year, now.month, now.day);
   return !date.isAfter(today);
 }
+}
+
+class _TrackingIcon extends StatefulWidget {
+  final String crmEntryId;
+  final String trackingType;
+  final IconData icon;
+  final Color colorIfNone;
+  final Color colorIfOpen;
+  final Color colorIfDone;
+  final BuildContext context;
+  final CrmEntry crmEntry;
+
+  const _TrackingIcon({
+    required this.crmEntryId,
+    required this.trackingType,
+    required this.icon,
+    required this.colorIfNone,
+    required this.colorIfOpen,
+    required this.colorIfDone,
+    required this.context,
+    required this.crmEntry,
+  });
+
+  @override
+  State<_TrackingIcon> createState() => _TrackingIconState();
+}
+
+class _TrackingIconState extends State<_TrackingIcon> {
+  Note? _note;
+  bool _loading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchNote();
+  }
+
+  Future<void> _fetchNote() async {
+    setState(() => _loading = true);
+    try {
+      final notes = await ApiService().fetchNotes();
+      Note? note;
+      try {
+        note = notes.firstWhere(
+          (n) => n.crmEntryId == widget.crmEntryId && n.trackingType == widget.trackingType,
+        );
+      } catch (_) {
+        note = null;
+      }
+      setState(() => _note = note);
+    } catch (_) {
+      setState(() => _note = null);
+    } finally {
+      setState(() => _loading = false);
+    }
+  }
+
+  Color get _iconColor {
+    if (_note == null) return widget.colorIfNone;
+    if (_note!.isDone) return widget.colorIfDone;
+    return widget.colorIfOpen;
+  }
+
+  void _onTap() async {
+    final note = _note;
+    Note? result;
+    if (note == null) {
+      // Neue Notiz anlegen
+      result = await Navigator.of(context).push<Note>(
+        MaterialPageRoute(
+          builder: (_) => FormPage(
+            fromCrmEntry: widget.crmEntry,
+            existingNote: null,
+            trackingType: widget.trackingType,
+          ),
+        ),
+      );
+    } else {
+      // Notiz bearbeiten
+      result = await Navigator.of(context).push<Note>(
+        MaterialPageRoute(
+          builder: (_) => FormPage(
+            fromCrmEntry: widget.crmEntry,
+            existingNote: note,
+            trackingType: widget.trackingType,
+          ),
+        ),
+      );
+    }
+    // Nach Rückkehr immer neu laden, damit Status/Farbe stimmt
+    await _fetchNote();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return IconButton(
+      icon: _loading
+          ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2))
+          : Icon(widget.icon, color: _iconColor),
+      tooltip: widget.trackingType,
+      onPressed: _onTap,
+    );
+  }
 }

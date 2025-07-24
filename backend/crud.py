@@ -49,7 +49,9 @@ def create_note(db: Session, note_in: schemas.NoteCreate, user_id: int):
         note_text=note_in.note_text,
         custom_date=note_in.custom_date,
         gender=note_in.gender,
-        user_id=user_id
+        user_id=user_id,
+        crm_entry_id=note_in.crm_entry_id,
+        tracking_type=note_in.tracking_type,
     )
     db.add(db_note)
     db.commit()
@@ -72,9 +74,19 @@ def update_note(db: Session, note_id: int, note_in: schemas.NoteUpdate):
     if not db_note:
         return None
 
-    for attr, val in note_in.dict(exclude_unset=True).items():
+    update_data = note_in.dict(exclude_unset=True)
+    print('Update Note:', update_data)  # Logging für Debug
+
+    for attr, val in update_data.items():
         if attr != "labels":
+            # crm_entry_id und tracking_type nur überschreiben, wenn nicht None
+            if attr in ["crm_entry_id", "tracking_type"] and val is None:
+                continue
             setattr(db_note, attr, val)
+
+    # Speziell für is_done, falls es im Update enthalten ist
+    if 'is_done' in update_data:
+        db_note.is_done = update_data['is_done']
 
     if note_in.labels is not None:
         db_note.labels.clear()
@@ -159,3 +171,14 @@ def create_crm_entry_from_email(db, anrede, vorname, nachname, mobil, email, nac
     db.commit()
     db.refresh(entry)
     return entry
+
+# ============================
+# 🗑️ Löschen CRM
+# ============================
+def delete_crm_entry(db: Session, entry_id: str):
+    db_entry = db.query(CrmEntry).filter(CrmEntry.id == entry_id).first()
+    if not db_entry:
+        return False
+    db.delete(db_entry)
+    db.commit()
+    return True

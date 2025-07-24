@@ -1,6 +1,6 @@
 # schemas.py
-from pydantic import BaseModel
-from typing import List, Optional
+from pydantic import BaseModel, computed_field, field_serializer
+from typing import List, Optional, Any
 from datetime import datetime, date
 
 
@@ -29,7 +29,9 @@ class NoteBase(BaseModel):
     note_text: str
     custom_date: Optional[date] = None
     gender: str
-    labels: List[str] = []  # beim Erstellen nur Namen
+    labels: List[Any] = []  # Akzeptiert Strings und Label-Objekte
+    crm_entry_id: Optional[str] = None
+    tracking_type: Optional[str] = None
 
 class NoteCreate(NoteBase):
     pass
@@ -41,10 +43,14 @@ class NoteOut(NoteBase):
     id: int
     is_done: bool
     created_at: datetime
-    labels: List[Label]
 
     class Config:
-        orm_mode = True
+        from_attributes = True
+
+    @field_serializer('labels')
+    def serialize_labels(self, labels, _info):
+        # labels kann eine Liste von Label-Objekten oder Strings sein
+        return [l.name if hasattr(l, 'name') else l for l in labels]
 
 # ---------- User ----------
 

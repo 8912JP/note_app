@@ -7,8 +7,9 @@ import 'crm_entry.dart';
 class FormPage extends StatefulWidget {
   final Note? existingNote;
   final CrmEntry? fromCrmEntry; // ✅ NEU
+  final String? trackingType;
 
-  const FormPage({super.key, this.existingNote, this.fromCrmEntry});
+  const FormPage({super.key, this.existingNote, this.fromCrmEntry, this.trackingType});
 
   @override
   _FormPageState createState() => _FormPageState();
@@ -36,36 +37,50 @@ class _FormPageState extends State<FormPage> {
 
   bool _isSaving = false;
 
+  String? _crmEntryId;
+  String? _trackingType;
+
   @override
   void initState() {
     super.initState();
     apiService = ApiService();
 
     _firstNameController = TextEditingController(
-  text: widget.existingNote?.firstName ?? widget.fromCrmEntry?.vorname ?? '',
-);
-_lastNameController = TextEditingController(
-  text: widget.existingNote?.lastName ?? widget.fromCrmEntry?.nachname ?? '',
-);
-_emailController = TextEditingController(
-  text: widget.existingNote?.email ?? widget.fromCrmEntry?.email ?? '',
-);
-_telephoneController = TextEditingController(
-  text: widget.existingNote?.telephone ?? widget.fromCrmEntry?.mobil ?? '',
-);
-_addressController = TextEditingController(
-  text: widget.existingNote?.address ?? widget.fromCrmEntry?.adresse ?? '',
-);
+      text: widget.existingNote?.firstName ?? widget.fromCrmEntry?.vorname ?? '',
+    );
+    _lastNameController = TextEditingController(
+      text: widget.existingNote?.lastName ?? widget.fromCrmEntry?.nachname ?? '',
+    );
+    _emailController = TextEditingController(
+      text: widget.existingNote?.email ?? widget.fromCrmEntry?.email ?? '',
+    );
+    _telephoneController = TextEditingController(
+      text: widget.existingNote?.telephone ?? widget.fromCrmEntry?.mobil ?? '',
+    );
+    _addressController = TextEditingController(
+      text: widget.existingNote?.address ?? widget.fromCrmEntry?.adresse ?? '',
+    );
+    // Standardtext für das Notizfeld je nach trackingType
+    String defaultNoteText = '';
+    if (widget.trackingType == 'Kit') {
+      defaultNoteText = 'Bitte 1 Kit an diese Adresse schicken';
+    } else if (widget.trackingType == 'Abholung') {
+      defaultNoteText = 'Bitte eine Abholung für DATUM/UHRZEIT organisieren';
+    } else {
+      defaultNoteText =
+        'CRM-Typ: ${widget.fromCrmEntry?.typ ?? "-"}\n'
+        'Status: ${widget.fromCrmEntry?.status ?? "-"}\n'
+        'Bearbeiter: ${widget.fromCrmEntry?.bearbeiter ?? "-"}';
+    }
     _noteTextController = TextEditingController(
-  text: widget.existingNote?.noteText ??
-      'CRM-Typ: ${widget.fromCrmEntry?.typ ?? "-"}\n'
-      'Status: ${widget.fromCrmEntry?.status ?? "-"}\n'
-      'Bearbeiter: ${widget.fromCrmEntry?.bearbeiter ?? "-"}',
-);
+      text: widget.existingNote?.noteText ?? defaultNoteText,
+    );
     _selectedDate = widget.existingNote?.customDate;
     _selectedGender = widget.existingNote?.gender ?? 'männlich';
     _selectedLabels = widget.existingNote?.labels.toList() ?? [];
     _isDone = widget.existingNote?.isDone ?? false;
+    _crmEntryId = widget.existingNote?.crmEntryId ?? widget.fromCrmEntry?.id;
+    _trackingType = widget.existingNote?.trackingType ?? widget.trackingType;
   }
 
   @override
@@ -126,6 +141,8 @@ _addressController = TextEditingController(
       labels: _selectedLabels,
       isDone: _isDone,
       createdAt: widget.existingNote?.createdAt ?? DateTime.now(),
+      crmEntryId: _crmEntryId,
+      trackingType: _trackingType,
     );
 
     try {

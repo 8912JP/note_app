@@ -1,24 +1,5 @@
 // note_model.dart
 
-class Label {
-  final int id;
-  final String name;
-
-  Label({required this.id, required this.name});
-
-  factory Label.fromJson(Map<String, dynamic> json) {
-    return Label(
-      id: json['id'],
-      name: json['name'],
-    );
-  }
-
-  Map<String, dynamic> toJson() => {
-        'id': id,
-        'name': name,
-      };
-}
-
 class Note {
   final int? id;
   String firstName;
@@ -31,7 +12,7 @@ class Note {
   String gender;
   bool isDone;
   DateTime? createdAt;
-  List<Label> labels;
+  List<String> labels;
 
   Note({
     this.id,
@@ -65,10 +46,7 @@ class Note {
       createdAt: json['created_at'] != null
           ? DateTime.parse(json['created_at'])
           : null,
-      labels: (json['labels'] as List<dynamic>?)
-              ?.map((l) => Label.fromJson(l))
-              .toList() ??
-          [],
+      labels: (json['labels'] as List<dynamic>?)?.map((l) => l.toString()).toList() ?? [],
     );
   }
 
@@ -80,11 +58,10 @@ class Note {
       'email': email,
       'telephone': telephone,
       'note_text': noteText,
-      'custom_date':
-          customDate?.toIso8601String(),
+      'custom_date': customDate?.toIso8601String(),
       'gender': gender,
       'is_done': isDone,
-      'labels': labels.map((l) => l.name).toList(), // nur Name senden
+      'labels': labels,
     };
   }
 }

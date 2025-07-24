@@ -109,8 +109,8 @@ class _GroupedNotesPageState extends State<GroupedNotesPage> {
     if (_selectedStatus == "done" && !note.isDone) return false;
     if (_selectedStatus == "not_done" && note.isDone) return false;
     if (_selectedDateRange != null &&
-        (note.createdAt.isBefore(_selectedDateRange!.start) ||
-            note.createdAt.isAfter(_selectedDateRange!.end))) {
+        (note.createdAt!.isBefore(_selectedDateRange!.start) ||
+            note.createdAt!.isAfter(_selectedDateRange!.end))) {
       return false;
     }
     return true;
@@ -210,7 +210,9 @@ class _GroupedNotesPageState extends State<GroupedNotesPage> {
   Future<void> _toggleDone(Note note) async {
     final updated = note.copyWith(isDone: !note.isDone);
     await apiService.updateNote(updated);
-    _updateOrInsertNote(updated);
+    // Lade die Notiz nach dem Update erneut vom Server, damit der Status sicher aktuell ist!
+    final fresh = await apiService.fetchNoteById(updated.id.toString());
+    if (fresh != null) _updateOrInsertNote(fresh);
   }
 
   Future<void> _editNote(Note note) async {

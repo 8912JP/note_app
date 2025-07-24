@@ -125,8 +125,8 @@ Future<void> _handleWebSocketEvent(dynamic data) async {
     if (_selectedStatus == "done" && !note.isDone) return false;
     if (_selectedStatus == "not_done" && note.isDone) return false;
     if (_selectedDateRange != null) {
-      if (note.createdAt.isBefore(_selectedDateRange!.start) ||
-          note.createdAt.isAfter(_selectedDateRange!.end)) {
+      if (note.createdAt!.isBefore(_selectedDateRange!.start) ||
+          note.createdAt!.isAfter(_selectedDateRange!.end)) {
         return false;
       }
     }
@@ -184,6 +184,8 @@ Future<void> _handleWebSocketEvent(dynamic data) async {
         setState(() {
           final index = allNotes.indexWhere((n) => n.id == result.id);
           if (index != -1) allNotes[index] = result;
+          // Nach createdAt absteigend sortieren
+          allNotes.sort((a, b) => b.createdAt.compareTo(a.createdAt));
         });
       } catch (e) {
         print('Fehler beim Aktualisieren der Notiz: $e');
@@ -202,6 +204,8 @@ Future<void> _handleWebSocketEvent(dynamic data) async {
         if (!allNotes.any((n) => n.id == newNote.id)) {
           allNotes.add(newNote);
         }
+        // Nach createdAt absteigend sortieren
+        allNotes.sort((a, b) => b.createdAt.compareTo(a.createdAt));
       });
     }
   }

@@ -45,6 +45,8 @@ class Note(Base):
     owner = relationship("User", back_populates="notes")
 
     labels = relationship("Label", secondary=note_label, back_populates="notes")
+    crm_entry_id = Column(String(36), nullable=True)  # Verknüpfung zu CRM-Eintrag
+    tracking_type = Column(String(50), nullable=True)  # z.B. 'Kit', 'Abholung'
 
 class Label(Base):
     __tablename__ = "labels"

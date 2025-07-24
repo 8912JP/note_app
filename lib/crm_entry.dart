@@ -122,18 +122,26 @@ class CrmEntry {
 class ToDoItem {
   String text;
   bool done;
+  DateTime? createdAt;
+  DateTime? doneAt;
 
-  ToDoItem({required this.text, this.done = false});
+  ToDoItem({required this.text, this.done = false, DateTime? createdAt, DateTime? doneAt})
+      : createdAt = createdAt ?? DateTime.now(),
+        doneAt = done ? (doneAt ?? DateTime.now()) : null;
 
   factory ToDoItem.fromJson(Map<String, dynamic> json) {
     return ToDoItem(
       text: json['text'],
       done: json['done'] ?? false,
+      createdAt: json['createdAt'] != null ? DateTime.tryParse(json['createdAt']) : null,
+      doneAt: json['doneAt'] != null ? DateTime.tryParse(json['doneAt']) : null,
     );
   }
 
   Map<String, dynamic> toJson() => {
         'text': text,
         'done': done,
+        'createdAt': createdAt?.toIso8601String(),
+        'doneAt': doneAt?.toIso8601String(),
       };
 }

@@ -61,7 +61,8 @@ def login_for_access_token(
 
 @app.get("/notes/", response_model=List[schemas.NoteOut])
 def read_notes(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    return crud.get_all_notes(db)
+    notes = crud.get_all_notes(db)
+    return [schemas.NoteOut.from_orm(n) for n in notes]
 
 @app.post("/notes/", response_model=schemas.NoteOut, status_code=201)
 async def create_note(note: schemas.NoteCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
@@ -83,11 +84,11 @@ async def delete_note(note_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Notiz nicht gefunden")
     await broadcast_update({"event": "note_deleted", "id": note_id})
 
-@app.get("/notes/grouped", response_model=List[List[NoteOut]])
+@app.get("/notes/grouped", response_model=List[List[schemas.NoteOut]])
 def get_grouped_notes(db: Session = Depends(get_db)):
     all_notes = db.query(Note).all()
-    grouped = group_notes(all_notes)
-    return grouped
+    grouped = grouping.group_notes(all_notes)
+    return [[schemas.NoteOut.from_orm(n) for n in group] for group in grouped]
 
 
 clients: List[WebSocket] = []
@@ -98,7 +99,7 @@ def get_note(note_id: int, db: Session = Depends(get_db)):
     note = crud.get_note_by_id(db, note_id)
     if not note:
         raise HTTPException(status_code=404, detail="Notiz nicht gefunden")
-    return note
+    return schemas.NoteOut.from_orm(note)
 
 @app.websocket("/ws/notes")
 async def websocket_endpoint(websocket: WebSocket):
@@ -204,6 +205,11 @@ async def update_crm_entry(entry_id: str, entry: CrmEntryUpdate, db: Session = D
     updated = crud.update_crm_entry(db, entry_id, entry)
     await broadcast_crm_update({"event": "crm_updated", "id": entry_id})
     return updated
+
+@app.delete("/crm/{entry_id}", status_code=204)
+async def delete_crm_entry(entry_id: str, db: Session = Depends(get_db)):
+    if not crud.delete_crm_entry(db, entry_id):
+        raise HTTPException(status_code=404, detail="CRM-Eintrag nicht gefunden")
 
 @app.get("/status")
 def status_check():
