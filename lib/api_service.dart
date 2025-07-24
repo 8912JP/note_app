@@ -263,6 +263,19 @@ class ApiService {
     }
   }
 
+  Future<void> deleteCrmEntry(String id) async {
+    final response = await http.delete(
+      Uri.parse('$baseUrl/crm/$id'),
+      headers: _authHeaders,
+    );
+    if (response.statusCode != 204 && response.statusCode != 200) {
+      if (response.statusCode == 401) {
+        throw Exception('Unauthorized: Bitte erneut einloggen.');
+      }
+      throw Exception('Fehler beim Löschen (${response.statusCode})');
+    }
+  }
+
   Future<bool> checkServerStatus() async {
     try {
       final response = await http.get(Uri.parse('$baseUrl/status'));

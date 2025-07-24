@@ -29,13 +29,14 @@ class CrmEntryProvider extends ChangeNotifier {
 
   List<CrmEntry> get filteredEntries {
     return _entries.where((e) {
-      final text = '${e.vorname} ${e.nachname} ${e.email} ${e.adresse}'.toLowerCase();
+      final adresse = [e.strasse ?? '', e.hausnummer ?? '', e.plz ?? '', e.ort ?? '', e.land ?? ''].where((v) => v.isNotEmpty).join(' ');
+      final text = '${e.vorname ?? ''} ${e.nachname ?? ''} ${e.email ?? ''} $adresse'.toLowerCase();
       if (_searchText.isNotEmpty && !text.contains(_searchText.toLowerCase())) {
         return false;
       }
       if (_selectedDateRange != null) {
-        if (e.anfrageDatum.isBefore(_selectedDateRange!.start) ||
-            e.anfrageDatum.isAfter(_selectedDateRange!.end)) {
+        if ((e.anfrageDatum?.isBefore(_selectedDateRange!.start) ?? false) ||
+            (e.anfrageDatum?.isAfter(_selectedDateRange!.end) ?? false)) {
           return false;
         }
       }
@@ -46,7 +47,7 @@ class CrmEntryProvider extends ChangeNotifier {
   Future<void> loadEntries(ApiService apiService) async {
     try {
       _entries = await apiService.fetchCrmEntries();
-      _entries.sort((a, b) => b.anfrageDatum.compareTo(a.anfrageDatum));
+      _entries.sort((a, b) => (b.anfrageDatum ?? DateTime(1900)).compareTo(a.anfrageDatum ?? DateTime(1900)));
       sortColumnIndex = 0;
       sortAscending = false;
       notifyListeners();
@@ -67,9 +68,33 @@ class CrmEntryProvider extends ChangeNotifier {
   }
 
   void toggleErledigt(String id, bool erledigt) {
-    final entry = _entries.firstWhere((e) => e.id == id);
-    entry.erledigt = erledigt;
-    notifyListeners();
+    final index = _entries.indexWhere((e) => e.id == id);
+    if (index != -1) {
+      final old = _entries[index];
+      _entries[index] = CrmEntry(
+        id: old.id,
+        anfrageDatum: old.anfrageDatum,
+        titel: old.titel,
+        vorname: old.vorname,
+        nachname: old.nachname,
+        adresse: old.adresse,
+        email: old.email,
+        mobil: old.mobil,
+        festnetz: old.festnetz,
+        krankheitsstatus: old.krankheitsstatus,
+        todos: old.todos,
+        status: old.status,
+        bearbeiter: old.bearbeiter,
+        wiedervorlage: old.wiedervorlage,
+        typ: old.typ,
+        stadium: old.stadium,
+        kontaktquelle: old.kontaktquelle,
+        nachricht: old.nachricht,
+        infos: old.infos,
+        erledigt: erledigt,
+      );
+      notifyListeners();
+    }
     // Optional: API-Patch call
   }
 }
@@ -280,24 +305,26 @@ class CrmDataTableWrapper extends StatelessWidget {
 
   List<DataColumn> _buildColumns(CrmEntryProvider provider) {
     return [
-      DataColumn(label: const Text('Anfrage'), onSort: (i, a) => provider.sortBy(i, (e) => e.anfrageDatum, a)),
-      DataColumn(label: const Text('Anrede'), onSort: (i, a) => provider.sortBy(i, (e) => e.titel, a)),
-      DataColumn(label: const Text('Vorname'), onSort: (i, a) => provider.sortBy(i, (e) => e.vorname, a)),
-      DataColumn(label: const Text('Nachname'), onSort: (i, a) => provider.sortBy(i, (e) => e.nachname, a)),
-      DataColumn(label: const Text('Adresse'), onSort: (i, a) => provider.sortBy(i, (e) => e.adresse, a)),
-      DataColumn(label: const Text('E-Mail'), onSort: (i, a) => provider.sortBy(i, (e) => e.email, a)),
-      DataColumn(label: const Text('Mobil'), onSort: (i, a) => provider.sortBy(i, (e) => e.mobil, a)),
-      DataColumn(label: const Text('Festnetz'), onSort: (i, a) => provider.sortBy(i, (e) => e.festnetz, a)),
+      DataColumn(label: const Text('Anfrage'), onSort: (i, a) => provider.sortBy(i, (e) => e.anfrageDatum ?? DateTime(1900), a)),
+      DataColumn(label: const Text('Anrede'), onSort: (i, a) => provider.sortBy(i, (e) => e.titel ?? '', a)),
+      DataColumn(label: const Text('Vorname'), onSort: (i, a) => provider.sortBy(i, (e) => e.vorname ?? '', a)),
+      DataColumn(label: const Text('Nachname'), onSort: (i, a) => provider.sortBy(i, (e) => e.nachname ?? '', a)),
+      DataColumn(label: const Text('Adresse'), onSort: (i, a) => provider.sortBy(i, (e) => [e.strasse ?? '', e.hausnummer ?? '', e.plz ?? '', e.ort ?? '', e.land ?? ''].where((v) => v.isNotEmpty).join(' '), a)),
+      DataColumn(label: const Text('E-Mail'), onSort: (i, a) => provider.sortBy(i, (e) => e.email ?? '', a)),
+      DataColumn(label: const Text('Mobil'), onSort: (i, a) => provider.sortBy(i, (e) => e.mobil ?? '', a)),
+      DataColumn(label: const Text('Festnetz'), onSort: (i, a) => provider.sortBy(i, (e) => e.festnetz ?? '', a)),
       DataColumn(label: const Text('Typ'), onSort: (i, a) => provider.sortBy(i, (e) => e.typ ?? '-', a)),
-      DataColumn(label: const Text('Stadium'), onSort: (i, a) => provider.sortBy(i, (e) => e.stadium, a)),
-      DataColumn(label: const Text('Krankheitsstatus'), onSort: (i, a) => provider.sortBy(i, (e) => e.krankheitsstatus.length, a)),
+      DataColumn(label: const Text('Stadium'), onSort: (i, a) => provider.sortBy(i, (e) => e.stadium ?? '', a)),
+      DataColumn(label: const Text('Krankheitsstatus'), onSort: (i, a) => provider.sortBy(i, (e) => (e.krankheitsstatus ?? '').length, a)),
       DataColumn(label: const Text('ToDos'), onSort: (i, a) => provider.sortBy(i, (e) => e.todos.length, a)),
-      DataColumn(label: const Text('Bearbeiter'), onSort: (i, a) => provider.sortBy(i, (e) => e.bearbeiter, a)),
-      DataColumn(label: const Text('Kontaktquelle'), onSort: (i, a) => provider.sortBy(i, (e) => e.kontaktquelle, a)),
-      DataColumn(label: const Text('Status'), onSort: (i, a) => provider.sortBy(i, (e) => e.status, a)),
+      DataColumn(label: const Text('Bearbeiter'), onSort: (i, a) => provider.sortBy(i, (e) => e.bearbeiter ?? '', a)),
+      DataColumn(label: const Text('Kontaktquelle'), onSort: (i, a) => provider.sortBy(i, (e) => e.kontaktquelle ?? '', a)),
+      DataColumn(label: const Text('Status'), onSort: (i, a) => provider.sortBy(i, (e) => e.status ?? '', a)),
       DataColumn(label: const Text('Erledigt'), onSort: (i, a) => provider.sortBy(i, (e) => e.erledigt.toString(), a)),
       DataColumn(label: const Text('Wiedervorlage'), onSort: (i, a) => provider.sortBy(i, (e) => e.wiedervorlage ?? DateTime(1900), a)),
       const DataColumn(label: Text('Aktionen')),
+      DataColumn(label: const Text('Infos'), onSort: (i, a) => provider.sortBy(i, (e) => e.infos ?? '', a)),
+      DataColumn(label: const Text('Nachricht'), onSort: (i, a) => provider.sortBy(i, (e) => e.nachricht ?? '', a)),
     ];
   }
 }
@@ -308,29 +335,63 @@ class CrmDataSource extends DataTableSource {
 
   CrmDataSource(this.entries, this.context);
 
+  void _deleteCrmEntry(BuildContext context, CrmEntry entry) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Eintrag löschen?'),
+        content: const Text('Möchtest du diesen CRM-Eintrag wirklich löschen?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Abbrechen'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Löschen'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) {
+      try {
+        await ApiService().deleteCrmEntry(entry.id);
+        Provider.of<CrmEntryProvider>(context, listen: false).loadEntries(ApiService());
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Eintrag gelöscht')),
+        );
+      } catch (e) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Fehler beim Löschen: $e')),
+        );
+      }
+    }
+  }
+
   @override
   DataRow getRow(int index) {
     if (index >= entries.length) return const DataRow(cells: []);
     final e = entries[index];
 
+    final adresse = [e.strasse ?? '', e.hausnummer ?? '', e.plz ?? '', e.ort ?? '', e.land ?? ''].where((v) => v.isNotEmpty).join(' ');
     return DataRow.byIndex(
       index: index,
       cells: [
         DataCell(_wrapText(_formatDate(e.anfrageDatum))),
-        DataCell(_wrapText(e.titel)),
-        DataCell(_wrapText(e.vorname)),
-        DataCell(_wrapText(e.nachname)),
-        DataCell(_wrapText(e.adresse)),
-        DataCell(_wrapText(e.email)),
-        DataCell(_wrapText(e.mobil)),
-        DataCell(_wrapText(e.festnetz)),
+        DataCell(_wrapText(e.titel ?? '')),
+        DataCell(_wrapText(e.vorname ?? '')),
+        DataCell(_wrapText(e.nachname ?? '')),
+        DataCell(_wrapText(adresse)),
+        DataCell(_wrapText(e.email ?? '')),
+        DataCell(_wrapText(e.mobil ?? '')),
+        DataCell(_wrapText(e.festnetz ?? '')),
         DataCell(_wrapText(e.typ ?? '-')),
-        DataCell(_wrapText(e.stadium)),
-        DataCell(_wrapText(e.krankheitsstatus)),
-        DataCell(_wrapText(e.todoSummary)), // Format z. B. "3 offene ToDos"
-        DataCell(_wrapText(e.bearbeiter)),
-        DataCell(_wrapText(e.kontaktquelle)),
-        DataCell(_wrapText(e.status)),
+        DataCell(_wrapText(e.stadium ?? '')),
+        DataCell(_wrapText(e.krankheitsstatus ?? '')),
+        DataCell(_wrapText(e.todoSummary)),
+        DataCell(_wrapText(e.bearbeiter ?? '')),
+        DataCell(_wrapText(e.kontaktquelle ?? '')),
+        DataCell(_wrapText(e.status ?? '')),
         DataCell(
           Checkbox(
             value: e.erledigt,
@@ -384,9 +445,16 @@ class CrmDataSource extends DataTableSource {
                   );
                 },
               ),
+              IconButton(
+                icon: const Icon(Icons.delete),
+                tooltip: 'Löschen',
+                onPressed: () => _deleteCrmEntry(context, e),
+              ),
             ],
           ),
         ),
+        DataCell(_wrapText(e.infos ?? '')),
+        DataCell(_wrapText(e.nachricht ?? '')),
       ],
     );
   }

@@ -79,7 +79,9 @@ Future<void> _handleWebSocketEvent(dynamic data) async {
         final newNote = await apiService.fetchNoteById(noteId);
         if (newNote == null || !mounted) return;
         setState(() {
-          allNotes.add(newNote);
+          if (!allNotes.any((n) => n.id == newNote.id)) {
+            allNotes.add(newNote);
+          }
         });
         break;
     }
@@ -197,7 +199,9 @@ Future<void> _handleWebSocketEvent(dynamic data) async {
 
     if (newNote != null) {
       setState(() {
-        allNotes.add(newNote); // Nur Liste updaten, kein API-Call hier!
+        if (!allNotes.any((n) => n.id == newNote.id)) {
+          allNotes.add(newNote);
+        }
       });
     }
   }

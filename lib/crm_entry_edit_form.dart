@@ -19,7 +19,7 @@ class CrmEntryEditForm extends StatefulWidget {
 class _CrmEntryEditFormState extends State<CrmEntryEditForm> {
   final _formKey = GlobalKey<FormState>();
 
-  String? _titel;
+  String? _titel; // Anrede (Herr, Frau, etc.)
   final _vornameController = TextEditingController();
   final _nachnameController = TextEditingController();
   final _strasseController = TextEditingController();
@@ -34,16 +34,21 @@ class _CrmEntryEditFormState extends State<CrmEntryEditForm> {
   final _wiedervorlageController = TextEditingController();
   final _typController = TextEditingController();
   final _stadiumController = TextEditingController();
+  final _nachrichtController = TextEditingController();
+  final _infosController = TextEditingController();
+  final _anfrageDatumController = TextEditingController();
 
   String? _status;
   String? _kontaktquelle;
+  String? _nachricht;
+  String? _infos;
 
   final List<ToDoItem> _todoItems = [];
   final _todoController = TextEditingController();
 
-  final List<String> _titelOptions = ['Herr', 'Frau', 'Divers', 'Dr.', 'Prof.'];
-  final List<String> _statusOptions = ['Offen', 'In Bearbeitung', 'Abgeschlossen'];
-  final List<String> _kontaktquelleOptions = ['E-Mail', 'Telefon', 'Onlineformular', 'Empfehlung'];
+  final List<String> _titelOptions = ['', 'Herr', 'Frau', 'Divers', 'Dr.', 'Prof.'];
+  final List<String> _statusOptions = ['', 'Offen', 'In Bearbeitung', 'Abgeschlossen'];
+  final List<String> _kontaktquelleOptions = ['', 'E-Mail', 'Telefon', 'Onlineformular', 'Empfehlung'];
 
   @override
   void initState() {
@@ -51,32 +56,39 @@ class _CrmEntryEditFormState extends State<CrmEntryEditForm> {
     final entry = widget.existingEntry;
     if (entry != null) {
       _titel = entry.titel;
-      _vornameController.text = entry.vorname;
-      _nachnameController.text = entry.nachname;
-
-      final adresseParts = entry.adresse.split(',');
-      if (adresseParts.length >= 3) {
-        final streetParts = adresseParts[0].trim().split(' ');
-        if (streetParts.length >= 2) {
-          _strasseController.text = streetParts.sublist(0, streetParts.length - 1).join(' ');
-          _hausnummerController.text = streetParts.last;
-        }
-        _plzController.text = adresseParts[1].trim().split(' ').first;
-        _ortController.text = adresseParts[1].trim().split(' ').sublist(1).join(' ');
-        _landController.text = adresseParts[2].trim();
-      }
-
-      _emailController.text = entry.email;
-      _mobilController.text = entry.mobil;
-      _festnetzController.text = entry.festnetz;
-      _krankheitController.text = entry.krankheitsstatus;
+      if (!_titelOptions.contains(_titel)) _titel = null;
+      _vornameController.text = entry.vorname ?? '';
+      _nachnameController.text = entry.nachname ?? '';
+      _strasseController.text = entry.strasse ?? '';
+      _hausnummerController.text = entry.hausnummer ?? '';
+      _plzController.text = entry.plz ?? '';
+      _ortController.text = entry.ort ?? '';
+      _landController.text = entry.land ?? '';
+      _nachricht = entry.nachricht;
+      _infos = entry.infos;
+      _nachrichtController.text = entry.nachricht ?? '';
+      _infosController.text = entry.infos ?? '';
+      _emailController.text = entry.email ?? '';
+      _mobilController.text = entry.mobil ?? '';
+      _festnetzController.text = entry.festnetz ?? '';
+      _krankheitController.text = entry.krankheitsstatus ?? '';
       _status = entry.status;
+      if (!_statusOptions.contains(_status)) _status = null;
       _kontaktquelle = entry.kontaktquelle;
+      if (!_kontaktquelleOptions.contains(_kontaktquelle)) _kontaktquelle = null;
       _typController.text = entry.typ ?? '';
-      _stadiumController.text = entry.stadium;
+      _stadiumController.text = entry.stadium ?? '';
       _wiedervorlageController.text =
           entry.wiedervorlage?.toIso8601String().split('T').first ?? '';
       _todoItems.addAll(entry.todos); // ✅ Status bleibt erhalten
+      _anfrageDatumController.text = entry.anfrageDatum != null
+          ? entry.anfrageDatum!.toIso8601String().split('T').first
+          : '';
+    } else {
+      // Default-Wert für neue Einträge
+      _landController.text = 'Deutschland';
+      _titel = 'Frau';
+      _anfrageDatumController.text = DateTime.now().toIso8601String().split('T').first;
     }
   }
 
@@ -95,12 +107,17 @@ class _CrmEntryEditFormState extends State<CrmEntryEditForm> {
 
       final entry = CrmEntry(
         id: widget.existingEntry?.id ?? DateTime.now().millisecondsSinceEpoch.toString(),
-        anfrageDatum: widget.existingEntry?.anfrageDatum ?? DateTime.now(),
+        anfrageDatum: _anfrageDatumController.text.isNotEmpty
+            ? DateTime.tryParse(_anfrageDatumController.text)
+            : DateTime.now(),
         titel: _titel ?? '',
         vorname: _vornameController.text,
         nachname: _nachnameController.text,
-        adresse:
-            "${_strasseController.text} ${_hausnummerController.text}, ${_plzController.text} ${_ortController.text}, ${_landController.text}",
+        strasse: _strasseController.text,
+        hausnummer: _hausnummerController.text,
+        plz: _plzController.text,
+        ort: _ortController.text,
+        land: _landController.text,
         email: _emailController.text,
         mobil: _mobilController.text,
         festnetz: _festnetzController.text,
@@ -115,6 +132,8 @@ class _CrmEntryEditFormState extends State<CrmEntryEditForm> {
         stadium: _stadiumController.text,
         kontaktquelle: _kontaktquelle ?? '',
         erledigt: widget.existingEntry?.erledigt ?? false,
+        nachricht: _nachrichtController.text,
+        infos: _infosController.text,
       );
 
       try {
@@ -154,6 +173,9 @@ class _CrmEntryEditFormState extends State<CrmEntryEditForm> {
     _todoController.dispose();
     _typController.dispose();
     _stadiumController.dispose();
+    _nachrichtController.dispose();
+    _infosController.dispose();
+    _anfrageDatumController.dispose();
     super.dispose();
   }
 
@@ -169,6 +191,33 @@ class _CrmEntryEditFormState extends State<CrmEntryEditForm> {
             spacing: 16,
             runSpacing: 16,
             children: [
+              // Anfragedatum-Feld (über Anrede/Titel)
+              TextFormField(
+                controller: _anfrageDatumController,
+                decoration: const InputDecoration(
+                  labelText: 'Anfragedatum',
+                  suffixIcon: Icon(Icons.calendar_today),
+                ),
+                readOnly: true,
+                onTap: () async {
+                  DateTime? initialDate;
+                  if (_anfrageDatumController.text.isNotEmpty) {
+                    initialDate = DateTime.tryParse(_anfrageDatumController.text);
+                  }
+                  final now = DateTime.now();
+                  final pickedDate = await showDatePicker(
+                    context: context,
+                    initialDate: initialDate ?? now,
+                    firstDate: DateTime(now.year - 5),
+                    lastDate: DateTime(now.year + 5),
+                  );
+                  if (pickedDate != null) {
+                    setState(() {
+                      _anfrageDatumController.text = pickedDate.toIso8601String().split('T').first;
+                    });
+                  }
+                },
+              ),
               DropdownButtonFormField<String>(
                 decoration: const InputDecoration(labelText: 'Anrede / Titel'),
                 items: _titelOptions.map((t) => DropdownMenuItem(value: t, child: Text(t))).toList(),
@@ -200,6 +249,8 @@ class _CrmEntryEditFormState extends State<CrmEntryEditForm> {
               ),
               TextFormField(controller: _typController, decoration: const InputDecoration(labelText: 'Typ')),
               TextFormField(controller: _stadiumController, decoration: const InputDecoration(labelText: 'Stadium')),
+              TextFormField(controller: _nachrichtController, decoration: const InputDecoration(labelText: 'Nachricht')),
+              TextFormField(controller: _infosController, decoration: const InputDecoration(labelText: 'Infos')),
               TextFormField(
   controller: _wiedervorlageController,
   decoration: const InputDecoration(
