@@ -300,9 +300,9 @@ class _CrmEntryEditFormState extends State<CrmEntryEditForm> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(todo.text),
-                              Text('Erstellt: ' + (todo.createdAt != null ? todo.createdAt!.toIso8601String().split('T').first : '-'), style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                              Text('Erstellt: ${todo.createdAt != null ? todo.createdAt!.toIso8601String().split('T').first : '-'}', style: const TextStyle(fontSize: 11, color: Colors.grey)),
                               if (todo.done && todo.doneAt != null)
-                                Text('Erledigt: ' + todo.doneAt!.toIso8601String().split('T').first, style: const TextStyle(fontSize: 11, color: Colors.green)),
+                                Text('Erledigt: ${todo.doneAt!.toIso8601String().split('T').first}', style: const TextStyle(fontSize: 11, color: Colors.green)),
                             ],
                           ),
                           value: todo.done,

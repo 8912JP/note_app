@@ -109,8 +109,8 @@ class _GroupedNotesPageState extends State<GroupedNotesPage> {
     if (_selectedStatus == "done" && !note.isDone) return false;
     if (_selectedStatus == "not_done" && note.isDone) return false;
     if (_selectedDateRange != null &&
-        (note.createdAt!.isBefore(_selectedDateRange!.start) ||
-            note.createdAt!.isAfter(_selectedDateRange!.end))) {
+        (note.createdAt.isBefore(_selectedDateRange!.start) ||
+            note.createdAt.isAfter(_selectedDateRange!.end))) {
       return false;
     }
     return true;
@@ -152,7 +152,7 @@ class _GroupedNotesPageState extends State<GroupedNotesPage> {
                 const Text('Labels'),
                 Wrap(
                   spacing: 6,
-                  children: ['dringend', 'Rückmeldung', 'Andere'].map((label) {
+                  children: ['Dringend', 'Rückmeldung', 'Go!', 'UPS', 'Eilt nicht'].map((label) {
                     final selected = tempLabels.contains(label);
                     return FilterChip(
                       label: Text(label),

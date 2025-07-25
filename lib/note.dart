@@ -62,7 +62,7 @@ class Note {
         'gender': gender,
         'labels': labels.map((l) => l is String ? l : l.toString()).toList(),
         'is_done': isDone,
-        'created_at': createdAt?.toIso8601String(),
+        'created_at': createdAt.toIso8601String(),
         'crm_entry_id': crmEntryId,
         'tracking_type': trackingType,
       };

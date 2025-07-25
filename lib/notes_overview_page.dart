@@ -125,8 +125,8 @@ Future<void> _handleWebSocketEvent(dynamic data) async {
     if (_selectedStatus == "done" && !note.isDone) return false;
     if (_selectedStatus == "not_done" && note.isDone) return false;
     if (_selectedDateRange != null) {
-      if (note.createdAt!.isBefore(_selectedDateRange!.start) ||
-          note.createdAt!.isAfter(_selectedDateRange!.end)) {
+      if (note.createdAt.isBefore(_selectedDateRange!.start) ||
+          note.createdAt.isAfter(_selectedDateRange!.end)) {
         return false;
       }
     }
@@ -251,23 +251,23 @@ Future<void> _handleWebSocketEvent(dynamic data) async {
                   const Text('Labels'),
                   Wrap(
                     spacing: 6,
-                    children: ['dringend', 'Rückmeldung', 'Andere']
+                    children: ['Dringend', 'Rückmeldung', 'Go!', 'UPS', 'Eilt nicht']
                         .map((label) {
-                      final selected = tempLabels.contains(label);
-                      return FilterChip(
-                        label: Text(label),
-                        selected: selected,
-                        onSelected: (selected) {
-                          setStateDialog(() {
-                            if (selected) {
-                              tempLabels.add(label);
-                            } else {
-                              tempLabels.remove(label);
-                            }
-                          });
-                        },
-                      );
-                    }).toList(),
+                          final selected = tempLabels.contains(label);
+                          return FilterChip(
+                            label: Text(label),
+                            selected: selected,
+                            onSelected: (selected) {
+                              setStateDialog(() {
+                                if (selected) {
+                                  tempLabels.add(label);
+                                } else {
+                                  tempLabels.remove(label);
+                                }
+                              });
+                            },
+                          );
+                        }).toList(),
                   ),
                   const SizedBox(height: 10),
                   ElevatedButton(

@@ -30,7 +30,7 @@ class _FormPageState extends State<FormPage> {
   List<String> _selectedLabels = [];
   bool _isDone = false;
 
-  final List<String> _allLabels = ['Dringend', 'Rückmeldung', 'Andere'];
+  final List<String> _allLabels = ['Dringend', 'Rückmeldung', 'Go!', 'UPS', 'Eilt nicht'];
   final List<String> _genders = ['männlich', 'weiblich', 'divers', 'keine Angabe'];
 
   late ApiService apiService;

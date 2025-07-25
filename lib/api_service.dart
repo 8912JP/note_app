@@ -208,8 +208,9 @@ class ApiService {
       Uri.parse('$baseUrl/notes/$id'),
       headers: _authHeaders,
     );
-    if (response.statusCode == 200)
+    if (response.statusCode == 200) {
       return Note.fromJson(jsonDecode(response.body));
+    }
     if (response.statusCode == 404) return null;
     throw Exception('Fehler: ${response.statusCode}');
   }

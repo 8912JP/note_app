@@ -102,7 +102,7 @@ class CrmEntryProvider extends ChangeNotifier {
 
 class CRMOverviewPage extends StatefulWidget {
   final ApiService apiService;
-  const CRMOverviewPage({Key? key, required this.apiService}) : super(key: key);
+  const CRMOverviewPage({super.key, required this.apiService});
 
   @override
   _CRMOverviewPageState createState() => _CRMOverviewPageState();

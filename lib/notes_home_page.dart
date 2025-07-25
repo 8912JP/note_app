@@ -5,6 +5,7 @@ import 'grouped_notes_page.dart';
 import 'api_service.dart';
 import 'crm_overview_page.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'statistik_page.dart';
 
 class NotesHomePage extends StatefulWidget {
   final ApiService apiService;
@@ -21,7 +22,7 @@ class _NotesHomePageState extends State<NotesHomePage> with SingleTickerProvider
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+    _tabController = TabController(length: 4, vsync: this);
   }
 
   @override
@@ -58,6 +59,7 @@ class _NotesHomePageState extends State<NotesHomePage> with SingleTickerProvider
             Tab(text: 'Notizen'),
             Tab(text: 'Gruppiert'),
             Tab(text: 'CRM'),
+            Tab(text: 'Statistik'),
           ],
         ),
       ),
@@ -70,6 +72,7 @@ class _NotesHomePageState extends State<NotesHomePage> with SingleTickerProvider
             create: (_) => CrmEntryProvider(),
             child: CRMOverviewPage(apiService: widget.apiService),
           ),
+          StatistikPage(apiService: widget.apiService),
         ],
       ),
     );
