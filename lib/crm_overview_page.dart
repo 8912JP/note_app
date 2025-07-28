@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:web_socket_channel/status.dart' as status;
 import 'dart:convert';
+import 'dart:developer';
 
 import 'crm_entry.dart';
 import 'api_service.dart';
@@ -53,7 +54,7 @@ class CrmEntryProvider extends ChangeNotifier {
       sortAscending = false;
       notifyListeners();
     } catch (e) {
-      print("Fehler beim Laden der CRM-Daten: $e");
+      log("Fehler beim Laden der CRM-Daten: $e");
     }
   }
 
@@ -105,10 +106,10 @@ class CRMOverviewPage extends StatefulWidget {
   const CRMOverviewPage({super.key, required this.apiService});
 
   @override
-  _CRMOverviewPageState createState() => _CRMOverviewPageState();
+  CRMOverviewPageState createState() => CRMOverviewPageState();
 }
 
-class _CRMOverviewPageState extends State<CRMOverviewPage> {
+class CRMOverviewPageState extends State<CRMOverviewPage> {
   WebSocketChannel? _channel;
   DateTimeRange? _selectedDateRange;
 
@@ -131,7 +132,7 @@ class _CRMOverviewPageState extends State<CRMOverviewPage> {
 
     final token = widget.apiService.accessToken;
     if (token == null) {
-      print("❌ Kein Token für WebSocket");
+      log("❌ Kein Token für WebSocket");
       return;
     }
 
@@ -142,21 +143,21 @@ class _CRMOverviewPageState extends State<CRMOverviewPage> {
       (message) {
         try {
           final data = json.decode(message);
-          print("📥 CRM-Event: $data");
+          log("📥 CRM-Event: $data");
           final event = data['event'];
           if (event == 'crm_created' || event == 'crm_updated') {
             final provider = Provider.of<CrmEntryProvider>(context, listen: false);
             provider.loadEntries(widget.apiService);
           }
         } catch (e) {
-          print("❌ Fehler beim Parsen der CRM WebSocket Nachricht: $e");
+          log("❌ Fehler beim Parsen der CRM WebSocket Nachricht: $e");
         }
       },
       onError: (error) {
-        print("❌ WebSocket Fehler: $error");
+        log("❌ WebSocket Fehler: $error");
       },
       onDone: () {
-        print("🔌 WebSocket Verbindung geschlossen");
+        log("🔌 WebSocket Verbindung geschlossen");
       },
     );
   }
@@ -167,7 +168,7 @@ class _CRMOverviewPageState extends State<CRMOverviewPage> {
     super.dispose();
   }
 
-  void _showFilterDialog() {
+  void showFilterDialog() {
     DateTimeRange? tempRange = _selectedDateRange;
 
     showDialog(
@@ -186,6 +187,7 @@ class _CRMOverviewPageState extends State<CRMOverviewPage> {
                     lastDate: DateTime(2100),
                     initialDateRange: tempRange,
                   );
+                  if (!mounted) return;
                   if (picked != null) setStateDialog(() => tempRange = picked);
                 },
                 child: Text(tempRange == null
@@ -227,7 +229,7 @@ class _CRMOverviewPageState extends State<CRMOverviewPage> {
         actions: [
           IconButton(
             icon: const Icon(Icons.filter_alt),
-            onPressed: _showFilterDialog,
+            onPressed: showFilterDialog,
           ),
         ],
         bottom: PreferredSize(
@@ -359,6 +361,7 @@ class CrmDataSource extends DataTableSource {
     if (confirmed == true) {
       try {
         await ApiService().deleteCrmEntry(entry.id);
+        if (!context.mounted) return;
         Provider.of<CrmEntryProvider>(context, listen: false).loadEntries(ApiService());
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Eintrag gelöscht')),
@@ -653,10 +656,10 @@ class _TrackingIconState extends State<_TrackingIcon> {
 
   void _onTap() async {
     final note = _note;
-    Note? result;
+    if (!mounted) return;
     if (note == null) {
       // Neue Notiz anlegen
-      result = await Navigator.of(context).push<Note>(
+      final result = await Navigator.of(context).push<Note>(
         MaterialPageRoute(
           builder: (_) => FormPage(
             fromCrmEntry: widget.crmEntry,
@@ -665,9 +668,13 @@ class _TrackingIconState extends State<_TrackingIcon> {
           ),
         ),
       );
+      if (result != null) {
+        // Nach Rückkehr immer neu laden, damit Status/Farbe stimmt
+        await _fetchNote();
+      }
     } else {
       // Notiz bearbeiten
-      result = await Navigator.of(context).push<Note>(
+      final result = await Navigator.of(context).push<Note>(
         MaterialPageRoute(
           builder: (_) => FormPage(
             fromCrmEntry: widget.crmEntry,
@@ -676,9 +683,11 @@ class _TrackingIconState extends State<_TrackingIcon> {
           ),
         ),
       );
+      if (result != null) {
+        // Nach Rückkehr immer neu laden, damit Status/Farbe stimmt
+        await _fetchNote();
+      }
     }
-    // Nach Rückkehr immer neu laden, damit Status/Farbe stimmt
-    await _fetchNote();
   }
 
   @override
