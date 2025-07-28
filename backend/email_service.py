@@ -54,10 +54,14 @@ def extract_from_html(html):
     }
 
 def extract_informationsgebiet_from_html(html):
-    th_pattern = r'Zu welchem Informationsgebiet dürfen wir Sie.*?</th>\s*<td[^>]*>.*?<li[^>]*>([^<]+)</li>'
+    th_pattern = r'Zu welchem Informationsgebiet.*?</th>\s*<td[^>]*>(.*?)</td>'
     match = re.search(th_pattern, html, re.DOTALL)
     if match:
-        return match.group(1).strip()
+        td_content = match.group(1)
+        items = re.findall(r'<li[^>]*>([^<]+)</li>', td_content)
+        # Entferne Zeilenumbrüche und mehrfachen Whitespace in jedem Eintrag
+        cleaned = [' '.join(item.split()) for item in items if item.strip()]
+        return ', '.join(cleaned)
     return ""
 
 def parse_kontaktquelle_from_betreff(betreff: str) -> str:

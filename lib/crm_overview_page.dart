@@ -322,11 +322,12 @@ class CrmDataTableWrapper extends StatelessWidget {
       DataColumn(label: const Text('Kontaktquelle'), onSort: (i, a) => provider.sortBy(i, (e) => e.kontaktquelle ?? '', a)),
       DataColumn(label: const Text('Status'), onSort: (i, a) => provider.sortBy(i, (e) => e.status ?? '', a)),
       DataColumn(label: const Text('Wiedervorlage'), onSort: (i, a) => provider.sortBy(i, (e) => e.wiedervorlage ?? DateTime(1900), a)),
-      // Verfolgungsspalte jetzt vor Aktionen:
-      DataColumn(label: const Text('Verfolgung')),
-      const DataColumn(label: Text('Aktionen')),
+      // Infos und Nachricht jetzt vor Verfolgung und Aktionen:
       DataColumn(label: const Text('Infos'), onSort: (i, a) => provider.sortBy(i, (e) => e.infos ?? '', a)),
       DataColumn(label: const Text('Nachricht'), onSort: (i, a) => provider.sortBy(i, (e) => e.nachricht ?? '', a)),
+      // Verfolgungsspalte jetzt nach Infos/Nachricht:
+      DataColumn(label: const Text('Verfolgung')),
+      const DataColumn(label: Text('Aktionen')),
     ];
   }
 }
@@ -476,6 +477,18 @@ class CrmDataSource extends DataTableSource {
             ],
           ),
         ),
+        // Infos und Nachricht jetzt vor Verfolgung und Aktionen:
+        DataCell(_wrapText(e.infos ?? '',
+          textStyle: (e.status ?? '').toLowerCase() == 'abgeschlossen'
+              ? const TextStyle(color: Colors.grey)
+              : null,
+        )),
+        DataCell(_wrapText(e.nachricht ?? '',
+          textStyle: (e.status ?? '').toLowerCase() == 'abgeschlossen'
+              ? const TextStyle(color: Colors.grey)
+              : null,
+        )),
+        // Verfolgungsspalte jetzt nach Infos/Nachricht:
         DataCell(
           Row(
             children: [
@@ -538,16 +551,6 @@ class CrmDataSource extends DataTableSource {
             ],
           ),
         ),
-        DataCell(_wrapText(e.infos ?? '',
-          textStyle: (e.status ?? '').toLowerCase() == 'abgeschlossen'
-              ? const TextStyle(color: Colors.grey)
-              : null,
-        )),
-        DataCell(_wrapText(e.nachricht ?? '',
-          textStyle: (e.status ?? '').toLowerCase() == 'abgeschlossen'
-              ? const TextStyle(color: Colors.grey)
-              : null,
-        )),
       ],
     );
   }

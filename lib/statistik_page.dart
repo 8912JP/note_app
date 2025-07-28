@@ -303,7 +303,6 @@ class _StatistikPageState extends State<StatistikPage> {
                           barTouchData: BarTouchData(
                             enabled: true,
                             touchTooltipData: BarTouchTooltipData(
-                              tooltipBgColor: Colors.white,
                               getTooltipItem: (group, groupIndex, rod, rodIndex) {
                                 final quelleIndex = quellen.indexOf(quellen[group.x]);
                                 final statusIndex = statusSet.indexOf(statusSet[rodIndex]);
@@ -322,7 +321,7 @@ class _StatistikPageState extends State<StatistikPage> {
                           ),
                           titlesData: FlTitlesData(
                             leftTitles: AxisTitles(
-                              sideTitles: SideTitles(showTitles: true, reservedSize: 22),
+                              sideTitles: SideTitles(showTitles: true, reservedSize: 40),
                             ),
                             bottomTitles: AxisTitles(
                               sideTitles: SideTitles(
@@ -493,7 +492,6 @@ class _StatistikPageState extends State<StatistikPage> {
                           barTouchData: BarTouchData(
                             enabled: true,
                             touchTooltipData: BarTouchTooltipData(
-                              tooltipBgColor: Colors.white,
                               getTooltipItem: (group, groupIndex, rod, rodIndex) {
                                 return BarTooltipItem(
                                   '${labels[group.x]}: ${rod.toY.toInt()}',
@@ -504,7 +502,7 @@ class _StatistikPageState extends State<StatistikPage> {
                           ),
                           titlesData: FlTitlesData(
                             leftTitles: AxisTitles(
-                              sideTitles: SideTitles(showTitles: true, reservedSize: 22),
+                              sideTitles: SideTitles(showTitles: true, reservedSize: 40),
                             ),
                             bottomTitles: AxisTitles(
                               sideTitles: SideTitles(
@@ -741,7 +739,6 @@ class _StatistikPageState extends State<StatistikPage> {
                           lineTouchData: LineTouchData(
                             enabled: true,
                             touchTooltipData: LineTouchTooltipData(
-                              tooltipBgColor: Colors.white,
                               getTooltipItems: (touchedSpots) {
                                 return touchedSpots.map((spot) {
                                   return LineTooltipItem(
@@ -898,7 +895,6 @@ class _StatistikPageState extends State<StatistikPage> {
                           barTouchData: BarTouchData(
                             enabled: true,
                             touchTooltipData: BarTouchTooltipData(
-                              tooltipBgColor: Colors.white,
                               getTooltipItem: (group, groupIndex, rod, rodIndex) {
                                 final isCurrent = rodIndex == 0;
                                 return BarTooltipItem(
@@ -910,7 +906,7 @@ class _StatistikPageState extends State<StatistikPage> {
                           ),
                           titlesData: FlTitlesData(
                             leftTitles: AxisTitles(
-                              sideTitles: SideTitles(showTitles: true, reservedSize: 22),
+                              sideTitles: SideTitles(showTitles: true, reservedSize: 40),
                             ),
                             bottomTitles: AxisTitles(
                               sideTitles: SideTitles(
@@ -963,19 +959,27 @@ class _StatistikPageState extends State<StatistikPage> {
     // Rohdaten-Blatt
     final sheetRaw = excel['Rohdaten'];
     sheetRaw.appendRow([
-      'ID', 'Datum', 'Status', 'Kontaktquelle', // 'Name', 'Notiz' entfernt
+      excel_pkg.TextCellValue('ID'),
+      excel_pkg.TextCellValue('Datum'),
+      excel_pkg.TextCellValue('Status'),
+      excel_pkg.TextCellValue('Kontaktquelle'),
     ]);
     for (final e in _entries) {
       sheetRaw.appendRow([
-        e.id?.toString() ?? '',
-        e.anfrageDatum != null ? DateFormat('yyyy-MM-dd').format(e.anfrageDatum!) : '',
-        (e.status ?? '').trim().isEmpty || (e.status ?? '').trim().toLowerCase() == 'unbekannt' ? 'Sonstiges' : (e.status ?? '').trim(),
-        (e.kontaktquelle ?? '').trim().isEmpty || (e.kontaktquelle ?? '').trim().toLowerCase() == 'unbekannt' ? 'Sonstiges' : (e.kontaktquelle ?? '').trim(),
+        excel_pkg.TextCellValue(e.id.toString()),
+        excel_pkg.TextCellValue(e.anfrageDatum != null ? DateFormat('yyyy-MM-dd').format(e.anfrageDatum!) : ''),
+        excel_pkg.TextCellValue((e.status ?? '').trim().isEmpty || (e.status ?? '').trim().toLowerCase() == 'unbekannt' ? 'Sonstiges' : (e.status ?? '').trim()),
+        excel_pkg.TextCellValue((e.kontaktquelle ?? '').trim().isEmpty || (e.kontaktquelle ?? '').trim().toLowerCase() == 'unbekannt' ? 'Sonstiges' : (e.kontaktquelle ?? '').trim()),
       ]);
     }
     // Statistik-Blatt
     final sheetStat = excel['Statistik'];
-    sheetStat.appendRow(['Kategorie', 'Wert', 'Anzahl', 'Prozent']);
+    sheetStat.appendRow([
+      excel_pkg.TextCellValue('Kategorie'),
+      excel_pkg.TextCellValue('Wert'),
+      excel_pkg.TextCellValue('Anzahl'),
+      excel_pkg.TextCellValue('Prozent'),
+    ]);
     // Kontaktquellen
     final quelleMap = <String, int>{};
     for (final e in _entries) {
@@ -987,7 +991,12 @@ class _StatistikPageState extends State<StatistikPage> {
     for (final k in quelleMap.keys) {
       final value = quelleMap[k] ?? 0;
       final percent = total > 0 ? value / total * 100 : 0.0;
-      sheetStat.appendRow(['Kontaktquelle', k, value, percent]);
+      sheetStat.appendRow([
+        excel_pkg.TextCellValue('Kontaktquelle'),
+        excel_pkg.TextCellValue(k),
+        excel_pkg.IntCellValue(value),
+        excel_pkg.DoubleCellValue(percent),
+      ]);
     }
     // Status
     final statusMap = <String, int>{};
@@ -999,7 +1008,12 @@ class _StatistikPageState extends State<StatistikPage> {
     for (final k in statusMap.keys) {
       final value = statusMap[k] ?? 0;
       final percent = total > 0 ? value / total * 100 : 0.0;
-      sheetStat.appendRow(['Status', k, value, percent]);
+      sheetStat.appendRow([
+        excel_pkg.TextCellValue('Status'),
+        excel_pkg.TextCellValue(k),
+        excel_pkg.IntCellValue(value),
+        excel_pkg.DoubleCellValue(percent),
+      ]);
     }
     // Speichern
     final dir = await getApplicationDocumentsDirectory();
