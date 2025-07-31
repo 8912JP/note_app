@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
+import 'package:web_socket_channel/io.dart';
 import 'package:web_socket_channel/status.dart' as status;
 import 'dart:convert';
 import 'dart:developer';
@@ -163,8 +164,17 @@ class CRMOverviewPageState extends State<CRMOverviewPage> {
       return;
     }
 
-    final uri = Uri.parse('wss://iqmedix.cloud/ws/crm?token=$token');
-    _channel = WebSocketChannel.connect(uri);
+    // CRM WebSocket temporär deaktiviert wegen Reverse Proxy Problem
+    log("⚠️ CRM WebSocket temporär deaktiviert - Reverse Proxy Problem");
+    return;
+
+    // WebSocket über Reverse Proxy - Server läuft lokal
+    final wsUrl = 'wss://iqmedix.cloud/ws/crm?token=$token';
+    log("🔌 Verbinde CRM WebSocket: $wsUrl");
+    
+    _channel = WebSocketChannel.connect(
+      Uri.parse(wsUrl),
+    );
 
     _channel!.stream.listen(
       (message) {

@@ -43,6 +43,8 @@ class _NotesOverviewPageState extends State<NotesOverviewPage> {
       unawaited(_handleWebSocketEvent(data));
     },
     onError: (error) => debugPrint('❌ WebSocket Fehler: $error'),
+    enableReconnect: true,
+    forceEnable: true, // WebSocket aktiviert - Server läuft
   );
 }
 
@@ -106,6 +108,22 @@ Future<void> _handleWebSocketEvent(dynamic data) async {
       if (!mounted) return;
       setState(() => isLoading = false);
       debugPrint('Fehler laden (Übersicht): $e');
+      
+      // Zeige Benutzer-freundliche Fehlermeldung
+      if (e.toString().contains('Server nicht erreichbar') || e.toString().contains('404')) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Backend-Server nicht verfügbar. Bitte starten Sie den Server mit: cd backend && uvicorn main:app --reload --host 0.0.0.0 --port 8000'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 10),
+            action: SnackBarAction(
+              label: 'OK',
+              textColor: Colors.white,
+              onPressed: () {},
+            ),
+          ),
+        );
+      }
     }
   }
 

@@ -244,6 +244,46 @@ nohup gunicorn main:app -w 2 -k uvicorn.workers.UvicornWorker --bind 127.0.0.1:8
 
 ---
 
+## 🛑 WebSocket-Proxying auf Strato Managed Server (Stand: $(date))
+
+### Rahmenbedingungen
+- **Server:** Strato Managed Server
+- **Admin-Zugriff:** _nicht_ vorhanden (kein root, keine Apache-Modulinstallation)
+- **Webserver:** Apache (nur .htaccess editierbar)
+- **Backend:** Gunicorn/Uvicorn (FastAPI) auf Port 8000
+- **Proxy:** HTTP-API und WebSocket werden über PHP-Proxys (`api-proxy.php`, `websocket-proxy.php`) weitergeleitet
+
+### Aktueller Stand
+- **HTTP-API:** Funktioniert stabil über `api-proxy.php`
+- **WebSocket:**
+  - Flutter-Client verbindet sich mit `wss://iqmedix.cloud/ws/notes?...`
+  - Die Anfrage landet in `websocket-proxy.php`, wird aber nicht korrekt an Gunicorn/Uvicorn weitergereicht
+  - Fehler: `was not upgraded to websocket, HTTP status code: 500` oder Port-Fehler (`:0`)
+
+### Technische Limitierungen
+- **PHP ist für echtes WebSocket-Proxying nicht geeignet!**
+  - PHP kann keine bidirektionalen Streams und keinen echten WebSocket-Handshake
+  - Die meisten PHP-Proxys funktionieren nur für HTTP, nicht für WebSockets
+- **Apache-Module wie `mod_proxy_wstunnel` können _nicht_ aktiviert werden** (kein root)
+- **Nginx als Proxy ist _nicht_ möglich**
+
+### Mögliche Workarounds
+- **WebSocket-Proxying über PHP ist _nicht_ zuverlässig**
+  - Es gibt keine stabile, produktionsreife PHP-Lösung für WebSocket-Proxying
+  - Viele Frameworks/Libs (z.B. Ratchet, php-websockets) sind für eigene Server, nicht als Proxy
+- **Empfohlen:**
+  - Wenn möglich, auf einen Server mit Admin-Rechten wechseln (z.B. vServer, Cloud-Server)
+  - Oder: Backend auf einen externen Dienst (z.B. Heroku, DigitalOcean) auslagern, der WebSocket-Proxying unterstützt
+- **Alternativ:**
+  - Prüfen, ob Strato einen „App-Proxy“ oder „WebSocket-Proxy“ als Zusatzdienst anbietet
+  - Prüfen, ob ein externer WebSocket-Proxy (z.B. Cloudflare Tunnel, ngrok) genutzt werden kann
+
+### Status
+- **WebSocket-Verbindungen sind auf Strato Managed Servern mit PHP-Proxy _nicht_ zuverlässig möglich.**
+- **Die Anwendung kann HTTP-API, aber keine Echtzeit-Features (WebSocket) nutzen.**
+- **Für produktive WebSocket-Nutzung ist ein Server mit Admin-Rechten und Apache/Nginx-WebSocket-Proxy erforderlich.**
+
+---
+
 **Letzte Aktualisierung:** $(date)
-**Version:** 1.0
-**Status:** Debugging WebSocket-Verbindung 
+**Status:** WebSocket über PHP-Proxy auf Strato Managed Server nicht produktiv nutzbar. HTTP-API funktioniert. Echtzeit-Features (WebSocket) nur mit Serverwechsel oder externem Proxy möglich. 

@@ -58,17 +58,26 @@ class ApiService {
 
   // ======================== 📋 CRUD NOTES ========================
   Future<List<Note>> fetchNotes() async {
-    final response = await http.get(
-      Uri.parse('$baseUrl/api/notes/'),
-      headers: _authHeaders,
-    );
-    if (response.statusCode == 200) {
-      final List data = json.decode(response.body);
-      return data.map((e) => Note.fromJson(e)).toList();
-    } else if (response.statusCode == 401) {
-      throw Exception('Unauthorized: Bitte erneut einloggen.');
-    } else {
-      throw Exception('Fehler beim Laden der Notizen (${response.statusCode})');
+    try {
+      final response = await http.get(
+        Uri.parse('$baseUrl/api/notes/'),
+        headers: _authHeaders,
+      );
+      if (response.statusCode == 200) {
+        final List data = json.decode(response.body);
+        return data.map((e) => Note.fromJson(e)).toList();
+      } else if (response.statusCode == 401) {
+        throw Exception('Unauthorized: Bitte erneut einloggen.');
+      } else if (response.statusCode == 404) {
+        throw Exception('Server nicht verfügbar (404). Bitte starten Sie den Backend-Server.');
+      } else {
+        throw Exception('Fehler beim Laden der Notizen (${response.statusCode})');
+      }
+    } catch (e) {
+      if (e.toString().contains('SocketException') || e.toString().contains('Connection refused')) {
+        throw Exception('Server nicht erreichbar. Bitte starten Sie den Backend-Server mit: cd backend && uvicorn main:app --reload --host 0.0.0.0 --port 8000');
+      }
+      rethrow;
     }
   }
 
@@ -88,17 +97,26 @@ class ApiService {
   }
 
   Future<Note> updateNote(Note note) async {
-    final response = await http.put(
-      Uri.parse('$baseUrl/notes/${note.id}'),
-      headers: _authHeaders,
-      body: json.encode(note.toJson()),
-    );
-    if (response.statusCode == 200) {
-      return Note.fromJson(json.decode(response.body));
-    } else if (response.statusCode == 401) {
-      throw Exception('Unauthorized: Bitte erneut einloggen.');
-    } else {
-      throw Exception('Fehler beim Aktualisieren (${response.statusCode})');
+    try {
+      final response = await http.put(
+        Uri.parse('$baseUrl/api/notes/${note.id}'),
+        headers: _authHeaders,
+        body: json.encode(note.toJson()),
+      );
+      if (response.statusCode == 200) {
+        return Note.fromJson(json.decode(response.body));
+      } else if (response.statusCode == 401) {
+        throw Exception('Unauthorized: Bitte erneut einloggen.');
+      } else if (response.statusCode == 404) {
+        throw Exception('Server nicht verfügbar (404). Bitte starten Sie den Backend-Server.');
+      } else {
+        throw Exception('Fehler beim Aktualisieren (${response.statusCode})');
+      }
+    } catch (e) {
+      if (e.toString().contains('SocketException') || e.toString().contains('Connection refused')) {
+        throw Exception('Server nicht erreichbar. Bitte starten Sie den Backend-Server mit: cd backend && uvicorn main:app --reload --host 0.0.0.0 --port 8000');
+      }
+      rethrow;
     }
   }
 
@@ -137,6 +155,8 @@ class ApiService {
   void connectToWebSocket({
     required void Function(Map<String, dynamic> data) onEvent,
     void Function(dynamic error)? onError,
+    bool enableReconnect = true,
+    bool forceEnable = false, // Neue Option um WebSocket zu erzwingen
   }) {
     if (_accessToken == null) {
       print("⚠️ Kein AccessToken vorhanden. WebSocket wird nicht verbunden.");
@@ -149,17 +169,23 @@ class ApiService {
       return;
     }
 
-             // Verwende eine einfache String-URL ohne URI-Parsing
-         try {
-           final wsUrl = 'wss://iqmedix.cloud/ws/notes?token=$_accessToken';
-           print("🔌 Verbinde WebSocket: $wsUrl");
+    // WebSocket temporär deaktiviert wegen Reverse Proxy Problem
+    print("⚠️ WebSocket temporär deaktiviert - Reverse Proxy Problem");
+    print("💡 Server läuft, aber WebSocket über Proxy funktioniert nicht");
+    return;
+
+    try {
+      // WebSocket über Reverse Proxy - Server läuft lokal
+      String wsUrl;
       
-      // Verwende IOWebSocketChannel für bessere Kontrolle
-      _channel = IOWebSocketChannel.connect(
+      // Verwende die externe URL über den Reverse Proxy
+      wsUrl = 'wss://iqmedix.cloud/ws/notes?token=$_accessToken';
+      
+      print("🔌 Verbinde WebSocket: $wsUrl");
+      
+      // Verwende WebSocketChannel.connect direkt mit String-URL
+      _channel = WebSocketChannel.connect(
         Uri.parse(wsUrl),
-        headers: {
-          'Origin': 'https://iqmedix.cloud',
-        },
       );
 
       _channel!.stream.listen(
@@ -174,28 +200,38 @@ class ApiService {
         },
         onError: (error) {
           print("❌ WebSocket Fehler: $error");
+          
+          // Prüfe ob es ein HTTP 500 Fehler ist (Server-Problem)
+          if (error.toString().contains('HTTP status code: 500')) {
+            print("⚠️ Server-Problem erkannt. Versuche später erneut...");
+          }
+          
           if (onError != null) onError(error);
           _channel = null;
           
-          // Automatischer Reconnect nach 5 Sekunden
-          Future.delayed(const Duration(seconds: 5), () {
-            if (_channel == null) {
-              print("🔄 Versuche Reconnect nach Fehler...");
-              connectToWebSocket(onEvent: onEvent, onError: onError);
-            }
-          });
+          // Automatischer Reconnect nach 5 Sekunden, aber nur wenn nicht manuell getrennt
+          if (enableReconnect) {
+            Future.delayed(const Duration(seconds: 5), () {
+              if (_channel == null && _accessToken != null) {
+                print("🔄 Versuche Reconnect nach Fehler...");
+                connectToWebSocket(onEvent: onEvent, onError: onError, enableReconnect: enableReconnect);
+              }
+            });
+          }
         },
         onDone: () {
           print("🔌 WebSocket Verbindung geschlossen.");
           _channel = null;
           
-          // Automatischer Reconnect nach 5 Sekunden
-          Future.delayed(const Duration(seconds: 5), () {
-            if (_channel == null) {
-              print("🔄 Versuche Reconnect nach Verbindungsende...");
-              connectToWebSocket(onEvent: onEvent, onError: onError);
-            }
-          });
+          // Automatischer Reconnect nach 5 Sekunden, aber nur wenn nicht manuell getrennt
+          if (enableReconnect) {
+            Future.delayed(const Duration(seconds: 5), () {
+              if (_channel == null && _accessToken != null) {
+                print("🔄 Versuche Reconnect nach Verbindungsende...");
+                connectToWebSocket(onEvent: onEvent, onError: onError, enableReconnect: enableReconnect);
+              }
+            });
+          }
         },
         cancelOnError: false,
       );
