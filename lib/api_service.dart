@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:note_app/note.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
+import 'package:web_socket_channel/io.dart';
 import 'crm_entry.dart'; // dein Modell
 
 class ApiService {
@@ -9,7 +10,7 @@ class ApiService {
   ApiService._internal();
   factory ApiService() => _instance;
 
-  static const String baseUrl = 'http://iqmedix.cloud:8000';
+  static const String baseUrl = 'https://iqmedix.cloud';
   String? _accessToken;
   String? _loggedInUser;
   String? get loggedInUser => _loggedInUser;
@@ -20,7 +21,7 @@ class ApiService {
   // ======================== 🔐 AUTH ========================
   Future<bool> login(String username, String password) async {
     final response = await http.post(
-      Uri.parse('$baseUrl/token'),
+      Uri.parse('$baseUrl/api/token'),
       headers: {'Content-Type': 'application/x-www-form-urlencoded'},
       body: {'username': username, 'password': password},
     );
@@ -48,7 +49,7 @@ class ApiService {
 
   Future<bool> register(String username, String password) async {
     final response = await http.post(
-      Uri.parse('$baseUrl/register/'),
+      Uri.parse('$baseUrl/api/register/'),
       headers: {'Content-Type': 'application/json'},
       body: json.encode({'username': username, 'password': password}),
     );
@@ -58,7 +59,7 @@ class ApiService {
   // ======================== 📋 CRUD NOTES ========================
   Future<List<Note>> fetchNotes() async {
     final response = await http.get(
-      Uri.parse('$baseUrl/notes/'),
+      Uri.parse('$baseUrl/api/notes/'),
       headers: _authHeaders,
     );
     if (response.statusCode == 200) {
@@ -73,7 +74,7 @@ class ApiService {
 
   Future<Note> createNote(Note note) async {
     final response = await http.post(
-      Uri.parse('$baseUrl/notes/'),
+      Uri.parse('$baseUrl/api/notes/'),
       headers: _authHeaders,
       body: json.encode(note.toJson()),
     );
@@ -103,7 +104,7 @@ class ApiService {
 
   Future<void> deleteNote(int id) async {
     final response = await http.delete(
-      Uri.parse('$baseUrl/notes/$id'),
+      Uri.parse('$baseUrl/api/notes/$id'),
       headers: _authHeaders,
     );
     if (response.statusCode != 204) {
@@ -117,7 +118,7 @@ class ApiService {
   // ======================== 🧠 GRUPPIERUNG ========================
   Future<List<List<int>>> fetchNoteGroups() async {
     final response = await http.get(
-      Uri.parse('$baseUrl/notes/groups/'),
+      Uri.parse('$baseUrl/api/notes/groups/'),
       headers: _authHeaders,
     );
     if (response.statusCode == 200) {
@@ -142,19 +143,24 @@ class ApiService {
       return;
     }
 
-    // Dynamisch 'http' oder 'https' → 'ws' bzw. 'wss'
-    String wsBaseUrl = baseUrl;
-    if (baseUrl.startsWith('https')) {
-      wsBaseUrl = baseUrl.replaceFirst('https', 'wss');
-    } else if (baseUrl.startsWith('http')) {
-      wsBaseUrl = baseUrl.replaceFirst('http', 'ws');
+    // Prüfe ob bereits eine Verbindung existiert
+    if (_channel != null) {
+      print("⚠️ WebSocket-Verbindung bereits aktiv.");
+      return;
     }
 
-    final uri = Uri.parse('$wsBaseUrl/ws/notes?token=$_accessToken');
-    print("🔌 Verbinde WebSocket: $uri");
-
-    try {
-      _channel = WebSocketChannel.connect(uri);
+             // Verwende eine einfache String-URL ohne URI-Parsing
+         try {
+           final wsUrl = 'wss://iqmedix.cloud/ws/notes?token=$_accessToken';
+           print("🔌 Verbinde WebSocket: $wsUrl");
+      
+      // Verwende IOWebSocketChannel für bessere Kontrolle
+      _channel = IOWebSocketChannel.connect(
+        Uri.parse(wsUrl),
+        headers: {
+          'Origin': 'https://iqmedix.cloud',
+        },
+      );
 
       _channel!.stream.listen(
         (message) {
@@ -169,15 +175,34 @@ class ApiService {
         onError: (error) {
           print("❌ WebSocket Fehler: $error");
           if (onError != null) onError(error);
+          _channel = null;
+          
+          // Automatischer Reconnect nach 5 Sekunden
+          Future.delayed(const Duration(seconds: 5), () {
+            if (_channel == null) {
+              print("🔄 Versuche Reconnect nach Fehler...");
+              connectToWebSocket(onEvent: onEvent, onError: onError);
+            }
+          });
         },
         onDone: () {
           print("🔌 WebSocket Verbindung geschlossen.");
+          _channel = null;
+          
+          // Automatischer Reconnect nach 5 Sekunden
+          Future.delayed(const Duration(seconds: 5), () {
+            if (_channel == null) {
+              print("🔄 Versuche Reconnect nach Verbindungsende...");
+              connectToWebSocket(onEvent: onEvent, onError: onError);
+            }
+          });
         },
-        cancelOnError: true,
+        cancelOnError: false,
       );
     } catch (e) {
       print("❌ Fehler beim Aufbau der WebSocket-Verbindung: $e");
       if (onError != null) onError(e);
+      _channel = null;
     }
   }
 
@@ -189,7 +214,7 @@ class ApiService {
 
   Future<List<List<Note>>> fetchGroupedNotes() async {
     final response = await http.get(
-      Uri.parse('$baseUrl/notes/grouped'),
+      Uri.parse('$baseUrl/api/notes/grouped'),
       headers: _authHeaders,
     );
 
@@ -205,7 +230,7 @@ class ApiService {
 
   Future<Note?> fetchNoteById(String id) async {
     final response = await http.get(
-      Uri.parse('$baseUrl/notes/$id'),
+      Uri.parse('$baseUrl/api/notes/$id'),
       headers: _authHeaders,
     );
     if (response.statusCode == 200) {
@@ -217,7 +242,7 @@ class ApiService {
 
   Future<List<CrmEntry>> fetchCrmEntries() async {
     final response = await http.get(
-      Uri.parse('$baseUrl/crm/'),
+      Uri.parse('$baseUrl/api/crm/'),
       headers: {
         'Content-Type': 'application/json',
         'Authorization': 'Bearer $_accessToken',
@@ -236,7 +261,7 @@ class ApiService {
 
   Future<void> createCrmEntry(CrmEntry entry) async {
     final response = await http.post(
-      Uri.parse('$baseUrl/crm/'),
+      Uri.parse('$baseUrl/api/crm/'),
       headers: {
         'Content-Type': 'application/json',
         'Authorization': 'Bearer $_accessToken',
@@ -251,11 +276,8 @@ class ApiService {
 
   Future<void> updateCrmEntry(CrmEntry entry) async {
     final response = await http.put(
-      Uri.parse('$baseUrl/crm/${entry.id}'),
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer $_accessToken',
-      },
+      Uri.parse('$baseUrl/api/crm/${entry.id}'),
+      headers: _authHeaders,
       body: jsonEncode(entry.toJson()),
     );
 
@@ -266,7 +288,7 @@ class ApiService {
 
   Future<void> deleteCrmEntry(String id) async {
     final response = await http.delete(
-      Uri.parse('$baseUrl/crm/$id'),
+      Uri.parse('$baseUrl/api/crm/$id'),
       headers: _authHeaders,
     );
     if (response.statusCode != 204 && response.statusCode != 200) {
@@ -279,7 +301,7 @@ class ApiService {
 
   Future<bool> checkServerStatus() async {
     try {
-      final response = await http.get(Uri.parse('$baseUrl/status'));
+      final response = await http.get(Uri.parse('$baseUrl/api/status'));
       if (response.statusCode == 200) {
         final body = jsonDecode(response.body);
         return body['status'] == 'ok';

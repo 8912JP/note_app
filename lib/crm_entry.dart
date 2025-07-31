@@ -24,6 +24,7 @@ class CrmEntry {
   final String? nachricht;
   final String? infos;
   final bool erledigt;
+  final String? rolle;
 
   CrmEntry({
     required this.id,
@@ -51,6 +52,7 @@ class CrmEntry {
     this.nachricht,
     this.infos,
     this.erledigt = false,
+    this.rolle,
   });
 
   String get fullName => '${vorname ?? ''} ${nachname ?? ''}';
@@ -84,6 +86,7 @@ class CrmEntry {
       erledigt: json['erledigt'] ?? false,
       nachricht: json['nachricht'] as String?,
       infos: json['infos'] as String?,
+      rolle: json['rolle'],
     );
   }
 
@@ -115,6 +118,7 @@ class CrmEntry {
       'erledigt': erledigt,
       'nachricht': nachricht,
       'infos': infos,
+      'rolle': rolle,
     };
   }
 }

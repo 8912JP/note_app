@@ -1,0 +1,28 @@
+RewriteEngine on
+
+# CORS-Headers für HTTPS
+Header always set Access-Control-Allow-Origin "*"
+Header always set Access-Control-Allow-Methods "GET, POST, PUT, DELETE, OPTIONS"
+Header always set Access-Control-Allow-Headers "Content-Type, Authorization, Upgrade, Connection, Sec-WebSocket-Key, Sec-WebSocket-Version, Sec-WebSocket-Protocol"
+Header always set Access-Control-Allow-Credentials "true"
+
+# API-Anfragen an PHP-Proxy weiterleiten
+RewriteCond %{REQUEST_URI} ^/api/
+RewriteRule ^api/(.*) api-proxy.php [L]
+
+# WebSocket-Upgrade für /api/ws/ Pfade
+RewriteCond %{HTTP:Upgrade} websocket [NC]
+RewriteCond %{REQUEST_URI} ^/api/ws/
+RewriteRule ^api/ws/(.*) api-proxy.php [L]
+
+# Basic Auth für alle anderen Anfragen (außer API)
+<Files "api-proxy.php">
+    Satisfy Any
+    Allow from all
+</Files>
+
+# Basic Auth für den Rest
+AuthType Basic
+AuthName "Geschützter Bereich"
+AuthUserFile /pages/d0/aa/d0017222/home/.htpasswd
+Require valid-user 

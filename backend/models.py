@@ -86,3 +86,4 @@ class CrmEntry(Base):
     plz = Column(String(20), nullable=True)
     ort = Column(String(100), nullable=True)
     land = Column(String(100), nullable=True)
+    rolle = Column(String(100), nullable=True)

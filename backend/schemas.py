@@ -97,6 +97,7 @@ class CrmEntryBase(BaseModel):
     kontaktquelle: Optional[str] = None
     infos: Optional[str] = None
     nachricht: Optional[str] = None
+    rolle: Optional[str] = None
     erledigt: bool = False
     strasse: Optional[str] = None
     hausnummer: Optional[str] = None
@@ -113,8 +114,9 @@ class CrmEntryOut(CrmEntryBase):
     class Config:
         orm_mode = True
 
-class CrmEntry(CrmEntryBase):
+class CrmEntry(BaseModel):
     id: int
+    rolle: Optional[str] = None
     class Config:
         orm_mode = True
 
@@ -135,6 +137,7 @@ class CrmEntryUpdate(BaseModel):
     kontaktquelle: Optional[str]
     erledigt: Optional[bool]
     strasse: Optional[str] = None
+    rolle: Optional[str] = None
     hausnummer: Optional[str] = None
     plz: Optional[str] = None
     ort: Optional[str] = None

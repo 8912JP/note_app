@@ -1,0 +1,11 @@
+HTTP/1.1 200 OK
+date: Thu, 31 Jul 2025 08:15:29 GMT
+server: uvicorn
+content-length: 164
+content-type: application/json
+access-control-allow-origin: https://iqmedix.cloud
+access-control-allow-credentials: true
+vary: Origin
+connection: close
+
+{"access_token":"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJUZXN0IiwiZXhwIjoxNzU0MDM2MTMwfQ.vzwePirUWIpzA6FO2qI5he7FWP28xzvltk9sNWM2Tyg","token_type":"bearer"}

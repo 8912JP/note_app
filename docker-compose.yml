@@ -1,0 +1,12 @@
+version: '3.8'
+
+services:
+  uvicorn:
+    build: .
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+    volumes:
+      - ./logs:/app/logs
+    environment:
+      - ENVIRONMENT=production 

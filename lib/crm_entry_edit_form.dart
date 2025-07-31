@@ -37,6 +37,7 @@ class _CrmEntryEditFormState extends State<CrmEntryEditForm> {
   final _nachrichtController = TextEditingController();
   final _infosController = TextEditingController();
   final _anfrageDatumController = TextEditingController();
+  String? _rolle;
 
   String? _status;
   String? _kontaktquelle;
@@ -47,8 +48,9 @@ class _CrmEntryEditFormState extends State<CrmEntryEditForm> {
   final _todoController = TextEditingController();
 
   final List<String> _titelOptions = ['', 'Herr', 'Frau', 'Divers', 'Dr.', 'Prof.'];
-  final List<String> _statusOptions = ['', 'Offen', 'In Bearbeitung', 'Abgeschlossen'];
-  final List<String> _kontaktquelleOptions = ['', 'E-Mail', 'Telefon', 'Onlineformular', 'Empfehlung'];
+  final List<String> _statusOptions = ['', 'Offen', 'nicht Einsender', 'Einsender'];
+  final List<String> _kontaktquelleOptions = ['', 'E-Mail', 'Telefon', 'Empfehlung', 'Internet organisch', 'QS24', 'Sales Rakete', 'Facebook', 'Messe'];
+  final List<String> _rolleOptions = ['Arzt', 'Heilpraktiker', 'Patient', 'Sonstiges'];
 
   @override
   void initState() {
@@ -73,6 +75,10 @@ class _CrmEntryEditFormState extends State<CrmEntryEditForm> {
       _festnetzController.text = entry.festnetz ?? '';
       _krankheitController.text = entry.krankheitsstatus ?? '';
       _status = entry.status;
+      // Anpassung: Status-Mapping für Kompatibilität mit alten Einträgen
+      if (_status == 'Abgeschlossen') _status = 'Einsender';
+      if (_status == 'In Bearbeitung') _status = 'Offen';
+      if (_status == 'Offen') _status = 'nicht Einsender';
       if (!_statusOptions.contains(_status)) _status = null;
       _kontaktquelle = entry.kontaktquelle;
       if (!_kontaktquelleOptions.contains(_kontaktquelle)) _kontaktquelle = null;
@@ -84,11 +90,15 @@ class _CrmEntryEditFormState extends State<CrmEntryEditForm> {
       _anfrageDatumController.text = entry.anfrageDatum != null
           ? entry.anfrageDatum!.toIso8601String().split('T').first
           : '';
+      _rolle = entry.rolle;
+      if (!_rolleOptions.contains(_rolle)) _rolle = null;
     } else {
       // Default-Wert für neue Einträge
       _landController.text = 'Deutschland';
       _titel = 'Frau';
+      _status = 'Offen';
       _anfrageDatumController.text = DateTime.now().toIso8601String().split('T').first;
+      _rolle = null;
     }
   }
 
@@ -102,9 +112,19 @@ class _CrmEntryEditFormState extends State<CrmEntryEditForm> {
   }
 
   Future<void> _submitForm() async {
-    if (_formKey.currentState!.validate()) {
-      _formKey.currentState!.save();
+    if (!_formKey.currentState!.validate()) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("❌ Bitte füllen Sie alle erforderlichen Felder aus"),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
 
+    _formKey.currentState!.save();
+    
+    try {
       final entry = CrmEntry(
         id: widget.existingEntry?.id ?? DateTime.now().millisecondsSinceEpoch.toString(),
         anfrageDatum: _anfrageDatumController.text.isNotEmpty
@@ -134,25 +154,58 @@ class _CrmEntryEditFormState extends State<CrmEntryEditForm> {
         erledigt: widget.existingEntry?.erledigt ?? false,
         nachricht: _nachrichtController.text,
         infos: _infosController.text,
+        rolle: _rolle,
       );
 
-      try {
-        if (widget.existingEntry != null) {
-          await ApiService().updateCrmEntry(entry);
-        } else {
-          await ApiService().createCrmEntry(entry);
-        }
+      // Zeige Lade-Indikator
+      if (!mounted) return;
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => const Center(child: CircularProgressIndicator()),
+      );
 
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("✅ CRM Eintrag gespeichert")),
-        );
-        Navigator.pop(context);
-      } catch (e) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("❌ Fehler beim Speichern: $e")),
-        );
+      final api = ApiService();
+      if (widget.existingEntry != null) {
+        await api.updateCrmEntry(entry);
+      } else {
+        await api.createCrmEntry(entry);
       }
+
+      if (!mounted) return;
+      
+      // Schließe Lade-Indikator
+      Navigator.of(context).pop();
+      
+      // Zeige Erfolgs-Nachricht
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("✅ CRM Eintrag gespeichert"),
+          backgroundColor: Colors.green,
+        ),
+      );
+      
+      // Gehe zurück mit Aktualisierungs-Flag
+      Navigator.pop(context, true);
+    } catch (e) {
+      if (!mounted) return;
+      
+      // Schließe Lade-Indikator falls noch offen
+      Navigator.of(context).maybePop();
+      
+      // Zeige Fehlermeldung
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text("❌ Fehler beim Speichern: $e"),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 5),
+          action: SnackBarAction(
+            label: 'Erneut versuchen',
+            textColor: Colors.white,
+            onPressed: _submitForm,
+          ),
+        ),
+      );
     }
   }
 
@@ -234,7 +287,13 @@ class _CrmEntryEditFormState extends State<CrmEntryEditForm> {
               TextFormField(controller: _emailController, decoration: const InputDecoration(labelText: 'E-Mail')),
               TextFormField(controller: _mobilController, decoration: const InputDecoration(labelText: 'Mobil')),
               TextFormField(controller: _festnetzController, decoration: const InputDecoration(labelText: 'Festnetz')),
-              TextFormField(controller: _krankheitController, decoration: const InputDecoration(labelText: 'Krankheitsstatus')),
+              TextFormField(controller: _krankheitController, decoration: const InputDecoration(labelText: 'Kommentar')),
+              DropdownButtonFormField<String>(
+                decoration: const InputDecoration(labelText: 'Rolle'),
+                items: _rolleOptions.map((r) => DropdownMenuItem(value: r, child: Text(r))).toList(),
+                value: _rolle,
+                onChanged: (val) => setState(() => _rolle = val),
+              ),
               DropdownButtonFormField<String>(
                 decoration: const InputDecoration(labelText: 'Status'),
                 items: _statusOptions.map((s) => DropdownMenuItem(value: s, child: Text(s))).toList(),

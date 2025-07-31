@@ -24,7 +24,8 @@ Base.metadata.create_all(bind=engine)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"], allow_credentials=True,
-    allow_methods=["*"], allow_headers=["*"]
+    allow_methods=["*"], allow_headers=["*"],
+    allow_origin_regex=r"https?://.*"
 )
 
 def get_db():
@@ -48,6 +49,7 @@ def register_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
     return new_user
 
 @app.post("/token", response_model=schemas.Token)
+@app.post("/api/token", response_model=schemas.Token)
 def login_for_access_token(
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db)
@@ -60,17 +62,21 @@ def login_for_access_token(
     return {"access_token": token, "token_type": "bearer"}
 
 @app.get("/notes/", response_model=List[schemas.NoteOut])
+@app.get("/api/notes/", response_model=List[schemas.NoteOut])
+@app.get("/api/notes/", response_model=List[schemas.NoteOut])
 def read_notes(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     notes = crud.get_all_notes(db)
     return [schemas.NoteOut.from_orm(n) for n in notes]
 
 @app.post("/notes/", response_model=schemas.NoteOut, status_code=201)
+@app.post("/api/notes/", response_model=schemas.NoteOut, status_code=201)
 async def create_note(note: schemas.NoteCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     db_note = crud.create_note(db, note, user_id=current_user.id)
     await broadcast_update({"event": "note_created", "id": db_note.id})
     return db_note
 
 @app.put("/notes/{note_id}", response_model=schemas.NoteOut)
+@app.put("/api/notes/{note_id}", response_model=schemas.NoteOut)
 async def update_note(note_id: int, note: schemas.NoteUpdate, db: Session = Depends(get_db)):
     db_note = crud.update_note(db, note_id, note)
     if not db_note:
@@ -79,12 +85,14 @@ async def update_note(note_id: int, note: schemas.NoteUpdate, db: Session = Depe
     return db_note
 
 @app.delete("/notes/{note_id}", status_code=204)
+@app.delete("/api/notes/{note_id}", status_code=204)
 async def delete_note(note_id: int, db: Session = Depends(get_db)):
     if not crud.delete_note(db, note_id):
         raise HTTPException(status_code=404, detail="Notiz nicht gefunden")
     await broadcast_update({"event": "note_deleted", "id": note_id})
 
 @app.get("/notes/grouped", response_model=List[List[schemas.NoteOut]])
+@app.get("/api/notes/grouped", response_model=List[List[schemas.NoteOut]])
 def get_grouped_notes(db: Session = Depends(get_db)):
     all_notes = db.query(Note).all()
     grouped = grouping.group_notes(all_notes)
@@ -95,6 +103,7 @@ clients: List[WebSocket] = []
 crm_clients: List[WebSocket] = []
 
 @app.get("/notes/{note_id}", response_model=schemas.NoteOut)
+@app.get("/api/notes/{note_id}", response_model=schemas.NoteOut)
 def get_note(note_id: int, db: Session = Depends(get_db)):
     note = crud.get_note_by_id(db, note_id)
     if not note:
@@ -212,5 +221,18 @@ async def delete_crm_entry(entry_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="CRM-Eintrag nicht gefunden")
 
 @app.get("/status")
+@app.get("/api/status")
 def status_check():
-    return {"status": "ok"}
+    return {"status": "ok", "message": "Server is running"}
+
+@app.get("/health")
+def health_check():
+    return {"status": "healthy", "timestamp": "2025-07-30"}
+
+@app.get("/public/status")
+def public_status():
+    return {"status": "public", "message": "This endpoint is public"}
+
+@app.get("/")
+def root():
+    return {"message": "FastAPI Server is running", "endpoints": ["/status", "/health", "/public/status"]}
