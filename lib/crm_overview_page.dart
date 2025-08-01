@@ -164,12 +164,12 @@ class CRMOverviewPageState extends State<CRMOverviewPage> {
       return;
     }
 
-    // CRM WebSocket temporär deaktiviert wegen Reverse Proxy Problem
-    log("⚠️ CRM WebSocket temporär deaktiviert - Reverse Proxy Problem");
-    return;
+    // CRM WebSocket über Node.js-Proxy aktiviert
+    log("🔌 CRM WebSocket wird über Node.js-Proxy aktiviert");
 
-    // WebSocket über Reverse Proxy - Server läuft lokal
-    final wsUrl = 'wss://iqmedix.cloud/ws/crm?token=$token';
+    // WebSocket über Node.js-Proxy - Server läuft lokal
+    // TODO: Später auf wss:// umstellen wenn SSL konfiguriert ist
+    final wsUrl = 'ws://iqmedix.cloud:8080/ws/crm?token=$token';
     log("🔌 Verbinde CRM WebSocket: $wsUrl");
     
     _channel = WebSocketChannel.connect(

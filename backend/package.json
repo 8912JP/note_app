@@ -1,0 +1,20 @@
+{
+  "name": "combined-proxy",
+  "version": "2.0.0",
+  "description": "Kombinierter HTTP/WebSocket-Proxy für Strato Managed Server",
+  "main": "combined-proxy.js",
+  "scripts": {
+    "start": "node combined-proxy.js",
+    "start:api": "node api-proxy.js",
+    "start:ws": "node ws-proxy.js",
+    "dev": "node combined-proxy.js",
+    "stop": "./stop-node-proxy.sh",
+    "restart": "./stop-node-proxy.sh && ./start-node-proxy.sh"
+  },
+  "dependencies": {
+    "http-proxy": "^1.18.1"
+  },
+  "engines": {
+    "node": ">=14.0.0"
+  }
+} 

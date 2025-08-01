@@ -169,17 +169,16 @@ class ApiService {
       return;
     }
 
-    // WebSocket temporär deaktiviert wegen Reverse Proxy Problem
-    print("⚠️ WebSocket temporär deaktiviert - Reverse Proxy Problem");
-    print("💡 Server läuft, aber WebSocket über Proxy funktioniert nicht");
-    return;
+    // WebSocket über Node.js-Proxy aktiviert
+    print("🔌 WebSocket wird über Node.js-Proxy aktiviert");
 
     try {
-      // WebSocket über Reverse Proxy - Server läuft lokal
+      // WebSocket über Node.js-Proxy - Server läuft lokal
       String wsUrl;
       
-      // Verwende die externe URL über den Reverse Proxy
-      wsUrl = 'wss://iqmedix.cloud/ws/notes?token=$_accessToken';
+      // Verwende die Node.js-Proxy-URL (Port kann je nach Strato-Konfiguration variieren)
+      // Falls Strato einen anderen Port vergibt, hier anpassen
+      wsUrl = 'ws://iqmedix.cloud:8080/ws/notes?token=$_accessToken';
       
       print("🔌 Verbinde WebSocket: $wsUrl");
       

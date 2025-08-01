@@ -10,15 +10,15 @@ Header always set Access-Control-Allow-Credentials "true"
 RewriteCond %{REQUEST_METHOD} OPTIONS
 RewriteRule ^(.*)$ $1 [R=200,L]
 
-# WebSocket-Pfad zu PHP-Proxy weiterleiten
+# WebSocket-Pfad zu Node.js-Proxy weiterleiten (mit SSL über Apache)
 RewriteCond %{HTTP:Connection} Upgrade [NC]
 RewriteCond %{HTTP:Upgrade} websocket [NC]
-RewriteRule ^api/ws/(.*) websocket-proxy.php [L,P]
+RewriteRule ^api/ws/(.*) http://localhost:8080/ws/$1 [P,L]
 
 # Alternative WebSocket-Pfad (ohne api/ prefix)
 RewriteCond %{HTTP:Connection} Upgrade [NC]
 RewriteCond %{HTTP:Upgrade} websocket [NC]
-RewriteRule ^ws/(.*) websocket-proxy.php [L,P]
+RewriteRule ^ws/(.*) http://localhost:8080/ws/$1 [P,L]
 
 # Basic Auth temporär deaktiviert wegen Server-Konfiguration
 # <FilesMatch "^(?!.*(api|websocket-proxy\.php)).*$">

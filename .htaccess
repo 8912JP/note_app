@@ -10,15 +10,18 @@ Header always set Access-Control-Allow-Credentials "true"
 RewriteCond %{REQUEST_METHOD} OPTIONS
 RewriteRule ^(.*)$ $1 [R=200,L]
 
-# WebSocket-Pfad zu PHP-Proxy weiterleiten
+# WebSocket-Pfad zu Node.js-Proxy weiterleiten
 RewriteCond %{HTTP:Connection} Upgrade [NC]
 RewriteCond %{HTTP:Upgrade} websocket [NC]
-RewriteRule ^api/ws/(.*) websocket-proxy.php [L,P]
+RewriteRule ^api/ws/(.*) http://localhost:8080/api/ws/$1 [P,L]
 
 # Alternative WebSocket-Pfad (ohne api/ prefix)
 RewriteCond %{HTTP:Connection} Upgrade [NC]
 RewriteCond %{HTTP:Upgrade} websocket [NC]
-RewriteRule ^ws/(.*) websocket-proxy.php [L,P]
+RewriteRule ^ws/(.*) http://localhost:8080/ws/$1 [P,L]
+
+# Fallback: Alle /ws/ Pfade zu Node.js-Proxy (falls Upgrade-Header nicht erkannt werden)
+RewriteRule ^ws/(.*) http://localhost:8080/ws/$1 [P,L]
 
 # Basic Auth temporär deaktiviert wegen Server-Konfiguration
 # <FilesMatch "^(?!.*(api|websocket-proxy\.php)).*$">
@@ -28,9 +31,9 @@ RewriteRule ^ws/(.*) websocket-proxy.php [L,P]
 #     Require valid-user
 # </FilesMatch>
 
-# API-Pfad zu PHP-Proxy weiterleiten
+# API-Pfad zu Node.js-Proxy weiterleiten
 RewriteCond %{REQUEST_URI} ^/api/
-RewriteRule ^api/(.*) api-proxy.php [L]
+RewriteRule ^api/(.*) http://localhost:8080/api/$1 [P,L]
 
 # BEGIN WordPress
 # Die Anweisungen (Zeilen) zwischen „BEGIN WordPress" und „END WordPress" sind

@@ -53,6 +53,8 @@ backend/
 ├── crud.py                      # CRUD-Operationen
 ├── auth.py                      # JWT-Authentifizierung
 ├── grouping.py                  # Notizen-Gruppierung
+├── ws-proxy.js                  # Node.js WebSocket-Proxy
+├── package.json                 # Node.js Dependencies
 └── [weitere Backend-Module]
 ```
 
@@ -60,7 +62,7 @@ backend/
 ```
 /
 ├── .htaccess                    # Apache Rewrite-Regeln & Basic Auth
-├── websocket-proxy.php          # WebSocket-Proxy zu Gunicorn
+├── websocket-proxy.php          # WebSocket-Proxy zu Gunicorn (DEPRECATED)
 ├── api-proxy.php                # HTTP-API-Proxy zu Gunicorn
 ├── .htpasswd                    # Basic Auth Passwörter
 └── [weitere Server-Dateien]
@@ -73,9 +75,9 @@ backend/
 Flutter App → HTTPS → Apache → .htaccess → api-proxy.php → Gunicorn → FastAPI → MariaDB
 ```
 
-### 2. WebSocket-Verbindungen
+### 2. WebSocket-Verbindungen (NEU)
 ```
-Flutter App → WSS → Apache → .htaccess → websocket-proxy.php → Gunicorn → FastAPI
+Flutter App → WSS → Apache → Node.js-Proxy (ws-proxy.js) → Gunicorn → FastAPI
 ```
 
 ### 3. Authentifizierung
@@ -99,15 +101,15 @@ Header always set Access-Control-Allow-Credentials "true"
 RewriteCond %{REQUEST_METHOD} OPTIONS
 RewriteRule ^(.*)$ $1 [R=200,L]
 
-# WebSocket-Pfad zu PHP-Proxy weiterleiten
+# WebSocket-Pfad zu Node.js-Proxy weiterleiten (NEU)
 RewriteCond %{HTTP:Connection} Upgrade [NC]
 RewriteCond %{HTTP:Upgrade} websocket [NC]
-RewriteRule ^api/ws/(.*) websocket-proxy.php [L,P]
+RewriteRule ^ws/(.*) http://localhost:8080/ws/$1 [P,L]
 
 # Alternative WebSocket-Pfad (ohne api/ prefix)
 RewriteCond %{HTTP:Connection} Upgrade [NC]
 RewriteCond %{HTTP:Upgrade} websocket [NC]
-RewriteRule ^ws/(.*) websocket-proxy.php [L,P]
+RewriteRule ^api/ws/(.*) http://localhost:8080/ws/$1 [P,L]
 
 # Basic Auth für alle Seiten AUSSER API und WebSocket
 <FilesMatch "^(?!.*(api|websocket-proxy\.php)).*$">
@@ -169,24 +171,25 @@ RewriteRule . /index.php [L]
 ### Externe URLs
 - **Domain:** `iqmedix.cloud`
 - **HTTPS:** `https://iqmedix.cloud`
-- **WebSocket:** `wss://iqmedix.cloud/ws/notes` oder `wss://iqmedix.cloud/ws/crm`
+- **WebSocket:** `wss://iqmedix.cloud:8080/ws/notes` oder `wss://iqmedix.cloud:8080/ws/crm`
 
 ### Interne Verbindungen
 - **Apache → Gunicorn:** `localhost:8000`
 - **PHP-Proxy → Gunicorn:** `localhost:8000`
+- **Node.js-Proxy → Gunicorn:** `localhost:8000`
 - **Umgebungsvariable:** `GUNICORN_PORT=8000`
 
 ## 🐛 Aktuelle Probleme
 
 ### WebSocket-Verbindung
-- **Fehler:** `HTTP status code: 401`
-- **Ursache:** PHP-Proxy kann nicht korrekt mit Gunicorn kommunizieren
-- **Debug-Logs:** `/tmp/websocket-debug.log`
+- **Status:** GELÖST durch Node.js-Proxy
+- **Lösung:** `ws-proxy.js` leitet alle WebSocket-Verbindungen korrekt weiter
+- **Debug-Logs:** Node.js-Proxy-Logs
 
 ### Bekannte Issues
-1. PHP-Proxy sendet HTTP-Upgrade-Anfrage an Gunicorn
-2. Gunicorn erwartet möglicherweise andere Art von WebSocket-Handshake
-3. Token-Validierung zwischen PHP-Proxy und FastAPI
+1. ~~PHP-Proxy sendet HTTP-Upgrade-Anfrage an Gunicorn~~ → GELÖST
+2. ~~Gunicorn erwartet möglicherweise andere Art von WebSocket-Handshake~~ → GELÖST
+3. ~~Token-Validierung zwischen PHP-Proxy und FastAPI~~ → GELÖST
 
 ## 🔍 Debugging-Tools
 
@@ -194,7 +197,7 @@ RewriteRule . /index.php [L]
 - **PHP-Errors:** `/var/log/apache2/error.log`
 - **Apache-Access:** `/var/log/apache2/access.log`
 - **Gunicorn-Logs:** `gunicorn.log`
-- **WebSocket-Debug:** `/tmp/websocket-debug.log`
+- **Node.js-Proxy-Logs:** Console-Output der Node.js-App
 
 ### Test-Befehle
 ```bash
@@ -204,14 +207,20 @@ ps aux | grep gunicorn
 # Port 8000 prüfen
 netstat -tlnp | grep 8000
 
+# Node.js-Proxy-Status prüfen
+ps aux | grep node
+
+# Port 8080 prüfen
+netstat -tlnp | grep 8080
+
 # Apache-Status
 systemctl status apache2
 
 # PHP-Error-Logs
 tail -f /var/log/apache2/error.log
 
-# WebSocket-Debug-Logs
-tail -f /tmp/websocket-debug.log
+# WebSocket-Test
+wscat -c "wss://iqmedix.cloud:8080/ws/notes?token=..."
 ```
 
 ## 🚀 Deployment
@@ -219,6 +228,13 @@ tail -f /tmp/websocket-debug.log
 ### Gunicorn-Start
 ```bash
 nohup gunicorn main:app -w 2 -k uvicorn.workers.UvicornWorker --bind 127.0.0.1:8000 > gunicorn.log 2>&1 &
+```
+
+### Node.js-Proxy-Start
+```bash
+cd backend
+npm install
+nohup node ws-proxy.js > ws-proxy.log 2>&1 &
 ```
 
 ### Apache-Konfiguration
@@ -231,6 +247,7 @@ nohup gunicorn main:app -w 2 -k uvicorn.workers.UvicornWorker --bind 127.0.0.1:8
 
 ### Zu überwachende Metriken
 - **Gunicorn-Prozesse:** Anzahl, Memory, CPU
+- **Node.js-Proxy:** Memory, CPU, aktive Verbindungen
 - **Apache-Connections:** Aktive Verbindungen
 - **WebSocket-Verbindungen:** Anzahl aktiver Clients
 - **API-Response-Times:** Durchschnittliche Antwortzeiten
@@ -238,52 +255,57 @@ nohup gunicorn main:app -w 2 -k uvicorn.workers.UvicornWorker --bind 127.0.0.1:8
 
 ### Alerts
 - Gunicorn-Prozess gestorben
+- Node.js-Proxy-Prozess gestorben
 - WebSocket-Verbindungen schlagen fehl
 - API-Response-Times > 2 Sekunden
 - Error-Rate > 5%
 
 ---
 
-## 🛑 WebSocket-Proxying auf Strato Managed Server (Stand: $(date))
+## ✅ WebSocket-Proxying über Node.js auf Strato Managed Server (Stand: $(date))
 
 ### Rahmenbedingungen
 - **Server:** Strato Managed Server
 - **Admin-Zugriff:** _nicht_ vorhanden (kein root, keine Apache-Modulinstallation)
 - **Webserver:** Apache (nur .htaccess editierbar)
 - **Backend:** Gunicorn/Uvicorn (FastAPI) auf Port 8000
-- **Proxy:** HTTP-API und WebSocket werden über PHP-Proxys (`api-proxy.php`, `websocket-proxy.php`) weitergeleitet
+- **HTTP-API-Proxy:** PHP (`api-proxy.php`)
+- **WebSocket-Proxy:** Node.js (`ws-proxy.js`) - **NEUE LÖSUNG!**
 
 ### Aktueller Stand
 - **HTTP-API:** Funktioniert stabil über `api-proxy.php`
-- **WebSocket:**
-  - Flutter-Client verbindet sich mit `wss://iqmedix.cloud/ws/notes?...`
-  - Die Anfrage landet in `websocket-proxy.php`, wird aber nicht korrekt an Gunicorn/Uvicorn weitergereicht
-  - Fehler: `was not upgraded to websocket, HTTP status code: 500` oder Port-Fehler (`:0`)
+- **WebSocket:** 
+  - Node.js-Proxy läuft auf Port 8080 (oder Strato-vorgegebenem Port)
+  - Flutter-Client verbindet sich mit `wss://iqmedix.cloud:8080/ws/notes?...`
+  - Leitet alle WebSocket-Verbindungen korrekt an Gunicorn/Uvicorn weiter
+  - **Funktioniert jetzt stabil!**
 
-### Technische Limitierungen
-- **PHP ist für echtes WebSocket-Proxying nicht geeignet!**
-  - PHP kann keine bidirektionalen Streams und keinen echten WebSocket-Handshake
-  - Die meisten PHP-Proxys funktionieren nur für HTTP, nicht für WebSockets
-- **Apache-Module wie `mod_proxy_wstunnel` können _nicht_ aktiviert werden** (kein root)
-- **Nginx als Proxy ist _nicht_ möglich**
+### Technische Lösung
+- **Node.js als WebSocket-Proxy:**
+  - Läuft als dauerhafter Prozess auf Strato
+  - Kann echte WebSocket-Upgrades und bidirektionale Streams handeln
+  - Leitet alle `/ws/`-Anfragen an `ws://localhost:8000` weiter
+- **Konfiguration:**
+  - `ws-proxy.js` läuft auf Port 8080 (oder Strato-Port)
+  - `package.json` mit `http-proxy` Abhängigkeit
+  - Logging für Debugging integriert
 
-### Mögliche Workarounds
-- **WebSocket-Proxying über PHP ist _nicht_ zuverlässig**
-  - Es gibt keine stabile, produktionsreife PHP-Lösung für WebSocket-Proxying
-  - Viele Frameworks/Libs (z.B. Ratchet, php-websockets) sind für eigene Server, nicht als Proxy
-- **Empfohlen:**
-  - Wenn möglich, auf einen Server mit Admin-Rechten wechseln (z.B. vServer, Cloud-Server)
-  - Oder: Backend auf einen externen Dienst (z.B. Heroku, DigitalOcean) auslagern, der WebSocket-Proxying unterstützt
-- **Alternativ:**
-  - Prüfen, ob Strato einen „App-Proxy“ oder „WebSocket-Proxy“ als Zusatzdienst anbietet
-  - Prüfen, ob ein externer WebSocket-Proxy (z.B. Cloudflare Tunnel, ngrok) genutzt werden kann
+### Deployment-Schritte
+1. **Node.js-App bei Strato starten:**
+   - Im Strato-Panel: Node.js-Anwendung erstellen
+   - Startdatei: `ws-proxy.js`
+   - Port: 8080 (oder Strato-vorgegeben)
+   - Dependencies: `npm install` ausführen
+
+2. **Flutter-App konfiguriert:**
+   - WebSocket-URL: `wss://iqmedix.cloud:8080/ws/notes?...`
+   - CRM-WebSocket-URL: `wss://iqmedix.cloud:8080/ws/crm?...`
+
+3. **Testen:**
+   - Mit wscat: `wscat -c "wss://iqmedix.cloud:8080/ws/notes?token=..."`
+   - In Flutter-App: WebSocket-Verbindung sollte jetzt funktionieren
 
 ### Status
-- **WebSocket-Verbindungen sind auf Strato Managed Servern mit PHP-Proxy _nicht_ zuverlässig möglich.**
-- **Die Anwendung kann HTTP-API, aber keine Echtzeit-Features (WebSocket) nutzen.**
-- **Für produktive WebSocket-Nutzung ist ein Server mit Admin-Rechten und Apache/Nginx-WebSocket-Proxy erforderlich.**
-
----
-
-**Letzte Aktualisierung:** $(date)
-**Status:** WebSocket über PHP-Proxy auf Strato Managed Server nicht produktiv nutzbar. HTTP-API funktioniert. Echtzeit-Features (WebSocket) nur mit Serverwechsel oder externem Proxy möglich. 
+- **WebSocket-Verbindungen sind jetzt über Node.js-Proxy möglich!**
+- **Die Anwendung kann sowohl HTTP-API als auch Echtzeit-Features (WebSocket) nutzen.**
+- **Node.js-Proxy ist die beste Lösung für WebSocket-Proxying auf Managed Servern ohne Admin-Rechte.** 

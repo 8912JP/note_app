@@ -1,0 +1,44 @@
+RewriteEngine On
+
+# CORS-Headers für HTTPS
+Header always set Access-Control-Allow-Origin "https://iqmedix.cloud"
+Header always set Access-Control-Allow-Methods "GET, POST, PUT, DELETE, OPTIONS"
+Header always set Access-Control-Allow-Headers "Content-Type, Authorization, Upgrade, Connection, Sec-WebSocket-Key, Sec-WebSocket-Version, Sec-WebSocket-Protocol, Origin"
+Header always set Access-Control-Allow-Credentials "true"
+
+# WebSocket-Upgrade Headers für OPTIONS requests
+RewriteCond %{REQUEST_METHOD} OPTIONS
+RewriteRule ^(.*)$ $1 [R=200,L]
+
+# WebSocket-Pfad zu Node.js-Proxy weiterleiten (mit SSL)
+RewriteCond %{HTTP:Connection} Upgrade [NC]
+RewriteCond %{HTTP:Upgrade} websocket [NC]
+RewriteRule ^ws/(.*) http://localhost:8080/ws/$1 [P,L]
+
+# Alternative WebSocket-Pfad (ohne api/ prefix)
+RewriteCond %{HTTP:Connection} Upgrade [NC]
+RewriteCond %{HTTP:Upgrade} websocket [NC]
+RewriteRule ^api/ws/(.*) http://localhost:8080/ws/$1 [P,L]
+
+# Basic Auth für alle Seiten AUSSER API und WebSocket
+<FilesMatch "^(?!.*(api|websocket-proxy\.php)).*$">
+    AuthType Basic
+    AuthName "Geschützter Bereich"
+    AuthUserFile /pages/d0/aa/d0017222/home/.htpasswd
+    Require valid-user
+</FilesMatch>
+
+# API-Pfad zu PHP-Proxy weiterleiten
+RewriteCond %{REQUEST_URI} ^/api/
+RewriteRule ^api/(.*) api-proxy.php [L]
+
+# WordPress-Regeln (falls vorhanden)
+<IfModule mod_rewrite.c>
+RewriteEngine On
+RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+RewriteBase /
+RewriteRule ^index\.php$ - [L]
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule . /index.php [L]
+</IfModule> 
