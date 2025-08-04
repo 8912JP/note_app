@@ -49,6 +49,7 @@ echo "Beende alle Node.js-Proxy-Prozesse..."
 pkill -f "combined-proxy.js" 2>/dev/null || true
 pkill -f "ws-proxy.js" 2>/dev/null || true
 pkill -f "api-proxy.js" 2>/dev/null || true
+# WebSocket-Proxy wird nicht mehr benötigt
 
 # Kurz warten
 sleep 2
@@ -64,4 +65,5 @@ fi
 echo ""
 echo "Proxy-Status:"
 echo "- Port 8080: $(netstat -tlnp 2>/dev/null | grep ":8080 " || echo "Frei")"
+# Port 8081 wird nicht mehr benötigt
 echo "- Port 8443: $(netstat -tlnp 2>/dev/null | grep ":8443 " || echo "Frei")" 

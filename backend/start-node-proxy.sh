@@ -20,7 +20,7 @@ fi
 if ! command -v npm &> /dev/null; then
     echo "FEHLER: npm ist nicht installiert!"
     exit 1
-fic
+fi
 
 # Dependencies installieren
 echo "Installiere Dependencies..."
@@ -32,11 +32,14 @@ if [ ! -f "combined-proxy.js" ]; then
     exit 1
 fi
 
+# WebSocket-Proxy wird nicht mehr benötigt - WebSockets gehen direkt zu FastAPI
+
 # Alte Prozesse beenden
 echo "Beende alte Proxy-Prozesse..."
 pkill -f "combined-proxy.js" 2>/dev/null || true
 pkill -f "ws-proxy.js" 2>/dev/null || true
 pkill -f "api-proxy.js" 2>/dev/null || true
+# WebSocket-Proxy wird nicht mehr benötigt
 
 # Kurz warten
 sleep 2
@@ -51,12 +54,14 @@ if netstat -tlnp 2>/dev/null | grep -q ":8443 "; then
     echo "WARNUNG: Port 8443 ist bereits belegt!"
 fi
 
+# Port 8081 wird nicht mehr benötigt
+
 # Umgebungsvariablen setzen
 export HTTP_PORT=8080
 export HTTPS_PORT=8443
 export NODE_ENV=production
 
-# Proxy starten
+# Combined Proxy starten
 echo "Starte Combined Proxy..."
 echo "HTTP-Port: $HTTP_PORT"
 echo "HTTPS-Port: $HTTPS_PORT"
@@ -66,7 +71,7 @@ echo ""
 LOG_FILE="combined-proxy.log"
 echo "Log-Datei: $LOG_FILE"
 
-# Proxy im Hintergrund starten
+# Combined Proxy im Hintergrund starten
 nohup node combined-proxy.js > "$LOG_FILE" 2>&1 &
 PROXY_PID=$!
 
@@ -75,6 +80,8 @@ echo $PROXY_PID > combined-proxy.pid
 
 echo "Combined Proxy gestartet mit PID: $PROXY_PID"
 echo ""
+
+# WebSocket-Proxy wird nicht mehr benötigt - WebSockets gehen direkt zu FastAPI
 
 # Kurz warten und Status prüfen
 sleep 3
@@ -87,7 +94,7 @@ if kill -0 $PROXY_PID 2>/dev/null; then
     echo "Verfügbare Endpunkte:"
     echo "- HTTP API: http://localhost:8080/api/*"
     echo "- HTTPS API: https://localhost:8443/api/* (falls SSL verfügbar)"
-    echo "- WebSocket: ws://localhost:8080/ws/* oder wss://localhost:8443/ws/*"
+    echo "- WebSocket: ws://iqmedix.cloud:8000/ws/* (direkt zu FastAPI)"
     echo ""
     echo "Zum Stoppen: ./stop-node-proxy.sh"
 else

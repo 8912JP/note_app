@@ -7,12 +7,14 @@
     "start": "node combined-proxy.js",
     "start:api": "node api-proxy.js",
     "start:ws": "node ws-proxy.js",
+    "start:websocket": "echo 'WebSocket-Proxy wird nicht mehr benötigt'",
     "dev": "node combined-proxy.js",
     "stop": "./stop-node-proxy.sh",
     "restart": "./stop-node-proxy.sh && ./start-node-proxy.sh"
   },
   "dependencies": {
-    "http-proxy": "^1.18.1"
+    "http-proxy": "^1.18.1",
+    "ws": "^8.14.2"
   },
   "engines": {
     "node": ">=14.0.0"

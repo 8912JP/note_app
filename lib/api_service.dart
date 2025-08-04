@@ -2,7 +2,6 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:note_app/note.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
-import 'package:web_socket_channel/io.dart';
 import 'crm_entry.dart'; // dein Modell
 
 class ApiService {
@@ -10,7 +9,7 @@ class ApiService {
   ApiService._internal();
   factory ApiService() => _instance;
 
-  static const String baseUrl = 'https://iqmedix.cloud';
+  static const String baseUrl = 'http://iqmedix.cloud:8080';
   String? _accessToken;
   String? _loggedInUser;
   String? get loggedInUser => _loggedInUser;
@@ -176,8 +175,7 @@ class ApiService {
       // WebSocket über Node.js-Proxy - Server läuft lokal
       String wsUrl;
       
-      // Verwende die Node.js-Proxy-URL (Port kann je nach Strato-Konfiguration variieren)
-      // Falls Strato einen anderen Port vergibt, hier anpassen
+      // WebSocket über Proxy zu FastAPI
       wsUrl = 'ws://iqmedix.cloud:8080/ws/notes?token=$_accessToken';
       
       print("🔌 Verbinde WebSocket: $wsUrl");

@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
-import 'package:web_socket_channel/io.dart';
 import 'package:web_socket_channel/status.dart' as status;
 import 'dart:convert';
 import 'dart:developer';
@@ -167,9 +166,8 @@ class CRMOverviewPageState extends State<CRMOverviewPage> {
     // CRM WebSocket über Node.js-Proxy aktiviert
     log("🔌 CRM WebSocket wird über Node.js-Proxy aktiviert");
 
-    // WebSocket über Node.js-Proxy - Server läuft lokal
-    // TODO: Später auf wss:// umstellen wenn SSL konfiguriert ist
-    final wsUrl = 'ws://iqmedix.cloud:8080/ws/crm?token=$token';
+                    // WebSocket über Node.js-Proxy zu FastAPI
+            final wsUrl = 'ws://iqmedix.cloud:8080/ws/crm?token=$token';
     log("🔌 Verbinde CRM WebSocket: $wsUrl");
     
     _channel = WebSocketChannel.connect(

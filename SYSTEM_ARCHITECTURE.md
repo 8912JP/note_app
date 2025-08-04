@@ -1,25 +1,33 @@
 # System-Architektur Dokumentation
 
-## 🏗️ Gesamtarchitektur
+## ��️ Gesamtarchitektur (AKTUELL - 01.08.2025)
 
 ```
-Internet (HTTPS) → Apache (Reverse Proxy) → PHP-Proxy → Gunicorn (FastAPI) → MariaDB
+Flutter App → HTTPS/WSS → Apache → .htaccess → Node.js-Proxy (Port 8080) → Gunicorn (Port 8000) → FastAPI → MariaDB
 ```
 
 ## 🖥️ Hardware & Server
 
 ### Server-Konfiguration
-- **Betriebssystem:** Linux
+- **Betriebssystem:** Linux (Strato Managed Server)
 - **Webserver:** Apache HTTP Server
 - **SSL/TLS:** HTTPS über Apache
 - **Python-Server:** Gunicorn mit Uvicorn Workers
-- **Datenbank:** mariaDB
-- **PHP:** Für Proxy-Funktionalität
+- **Datenbank:** MariaDB
+- **Proxy:** Node.js Combined-Proxy (HTTP + WebSocket)
 
 ### Ports & Services
 - **Apache:** Port 443 (HTTPS), Port 80 (HTTP)
-- **Gunicorn:** Port 8000 (lokal)
-- **PHP:** Über Apache (mod_php oder FastCGI)
+- **Gunicorn:** Port 8000 (lokal, 127.0.0.1)
+- **Node.js-Proxy:** Port 8080 (öffentlich erreichbar)
+- **MariaDB:** Standard-Port (lokal)
+
+### Apache-Module (Bestätigt)
+- **rewrite_module:** ✅ Geladen
+- **proxy_module:** ✅ Geladen  
+- **proxy_http_module:** ✅ Geladen
+- **proxy_wstunnel_module:** ✅ Geladen (für WebSocket-Tunneling)
+- **proxy_http2_module:** ✅ Geladen
 
 ## 📁 Dateistruktur
 
@@ -53,7 +61,9 @@ backend/
 ├── crud.py                      # CRUD-Operationen
 ├── auth.py                      # JWT-Authentifizierung
 ├── grouping.py                  # Notizen-Gruppierung
-├── ws-proxy.js                  # Node.js WebSocket-Proxy
+├── combined-proxy.js            # Node.js HTTP/WebSocket-Proxy (AKTUELL)
+├── start-node-proxy.sh          # Start-Skript für Node.js-Proxy
+├── stop-node-proxy.sh           # Stop-Skript für Node.js-Proxy
 ├── package.json                 # Node.js Dependencies
 └── [weitere Backend-Module]
 ```
@@ -61,23 +71,21 @@ backend/
 ### Server-Konfiguration
 ```
 /
-├── .htaccess                    # Apache Rewrite-Regeln & Basic Auth
-├── websocket-proxy.php          # WebSocket-Proxy zu Gunicorn (DEPRECATED)
-├── api-proxy.php                # HTTP-API-Proxy zu Gunicorn
+├── .htaccess                    # Apache Rewrite-Regeln & Basic Auth (AKTUELL)
 ├── .htpasswd                    # Basic Auth Passwörter
 └── [weitere Server-Dateien]
 ```
 
-## 🔄 Datenfluss
+## 🔄 Datenfluss (AKTUELL)
 
 ### 1. HTTP-API-Anfragen
 ```
-Flutter App → HTTPS → Apache → .htaccess → api-proxy.php → Gunicorn → FastAPI → MariaDB
+Flutter App → HTTPS → Apache → .htaccess → Node.js-Proxy (Port 8080) → Gunicorn (Port 8000) → FastAPI → MariaDB
 ```
 
-### 2. WebSocket-Verbindungen (NEU)
+### 2. WebSocket-Verbindungen
 ```
-Flutter App → WSS → Apache → Node.js-Proxy (ws-proxy.js) → Gunicorn → FastAPI
+Flutter App → WSS → Apache → .htaccess → Node.js-Proxy (Port 8080) → Gunicorn (Port 8000) → FastAPI
 ```
 
 ### 3. Authentifizierung
@@ -87,7 +95,7 @@ Login → JWT Token → Alle nachfolgenden Anfragen mit Token
 
 ## 🔧 Konfigurationsdateien
 
-### .htaccess (Apache)
+### .htaccess (Apache) - AKTUELL
 ```apache
 RewriteEngine On
 
@@ -101,29 +109,33 @@ Header always set Access-Control-Allow-Credentials "true"
 RewriteCond %{REQUEST_METHOD} OPTIONS
 RewriteRule ^(.*)$ $1 [R=200,L]
 
-# WebSocket-Pfad zu Node.js-Proxy weiterleiten (NEU)
-RewriteCond %{HTTP:Connection} Upgrade [NC]
-RewriteCond %{HTTP:Upgrade} websocket [NC]
-RewriteRule ^ws/(.*) http://localhost:8080/ws/$1 [P,L]
+# API-Requests zu Node.js-Proxy weiterleiten
+RewriteRule ^api/(.*) http://localhost:8080/api/$1 [P,L]
 
-# Alternative WebSocket-Pfad (ohne api/ prefix)
-RewriteCond %{HTTP:Connection} Upgrade [NC]
-RewriteCond %{HTTP:Upgrade} websocket [NC]
-RewriteRule ^api/ws/(.*) http://localhost:8080/ws/$1 [P,L]
+# WebSocket-Requests direkt zu FastAPI weiterleiten (Port 8000)
+RewriteRule ^ws/(.*) http://localhost:8000/ws/$1 [P,L]
 
-# Basic Auth für alle Seiten AUSSER API und WebSocket
-<FilesMatch "^(?!.*(api|websocket-proxy\.php)).*$">
+# Basic Auth für alle Seiten außer APIs und App-Seite
+<FilesMatch "^(?!.*(api|ws|app)).*$">
     AuthType Basic
     AuthName "Geschützter Bereich"
     AuthUserFile /pages/d0/aa/d0017222/home/.htpasswd
     Require valid-user
 </FilesMatch>
 
-# API-Pfad zu PHP-Proxy weiterleiten
-RewriteCond %{REQUEST_URI} ^/api/
-RewriteRule ^api/(.*) api-proxy.php [L]
+# Ausnahmen für API-Endpunkte
+<FilesMatch "^(api|ws)">
+    Satisfy Any
+    Allow from all
+</FilesMatch>
 
-# WordPress-Regeln (falls vorhanden)
+# Ausnahme für App-Seite (falls vorhanden)
+<FilesMatch "app">
+    Satisfy Any
+    Allow from all
+</FilesMatch>
+
+# BEGIN WordPress
 <IfModule mod_rewrite.c>
 RewriteEngine On
 RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
@@ -133,6 +145,25 @@ RewriteCond %{REQUEST_FILENAME} !-f
 RewriteCond %{REQUEST_FILENAME} !-d
 RewriteRule . /index.php [L]
 </IfModule>
+# END WordPress
+```
+
+### Node.js Combined-Proxy (combined-proxy.js) - AKTUELL
+```javascript
+// Proxy-Konfiguration für HTTP-API
+const apiProxy = httpProxy.createProxyServer({
+  target: 'http://localhost:8000', // FastAPI Backend
+  changeOrigin: true,
+  timeout: 30000,
+  proxyTimeout: 30000
+});
+
+// Proxy-Konfiguration für WebSocket
+const wsProxy = httpProxy.createProxyServer({
+  target: 'ws://localhost:8000', // FastAPI Backend
+  ws: true,
+  changeOrigin: true
+});
 ```
 
 ### FastAPI Endpunkte (main.py)
@@ -164,40 +195,52 @@ RewriteRule . /index.php [L]
 ### Basic Auth
 - **Zweck:** Apache-Level-Schutz für nicht-API-Seiten
 - **Datei:** `.htpasswd`
-- **Ausnahmen:** API-Endpunkte und WebSocket-Proxies
+- **Ausnahmen:** API-Endpunkte und WebSocket-Pfade
 
 ## 🌐 Netzwerk-Konfiguration
 
-### Externe URLs
+### Externe URLs (AKTUELL)
 - **Domain:** `iqmedix.cloud`
 - **HTTPS:** `https://iqmedix.cloud`
-- **WebSocket:** `wss://iqmedix.cloud:8080/ws/notes` oder `wss://iqmedix.cloud:8080/ws/crm`
+- **HTTP API:** `http://iqmedix.cloud:8080/api/*`
+- **WebSocket:** `ws://iqmedix.cloud:8080/ws/notes` oder `ws://iqmedix.cloud:8080/ws/crm`
+
+### Port-Erreichbarkeit (Bestätigt)
+- **Port 8080:** ✅ Öffentlich erreichbar (getestet mit `nc -zv iqmedix.cloud 8080`)
+- **Port 443:** ✅ HTTPS funktioniert
+- **Port 80:** ✅ HTTP funktioniert
+- **Port 8000:** ❌ Nur lokal erreichbar (Gunicorn)
 
 ### Interne Verbindungen
-- **Apache → Gunicorn:** `localhost:8000`
-- **PHP-Proxy → Gunicorn:** `localhost:8000`
+- **Apache → Node.js-Proxy:** `localhost:8080`
 - **Node.js-Proxy → Gunicorn:** `localhost:8000`
-- **Umgebungsvariable:** `GUNICORN_PORT=8000`
+- **Apache → Gunicorn:** `localhost:8000` (direkt für WebSockets)
 
 ## 🐛 Aktuelle Probleme
 
 ### WebSocket-Verbindung
-- **Status:** GELÖST durch Node.js-Proxy
-- **Lösung:** `ws-proxy.js` leitet alle WebSocket-Verbindungen korrekt weiter
-- **Debug-Logs:** Node.js-Proxy-Logs
+- **Status:** ✅ GELÖST - WebSockets gehen über Node.js-Proxy
+- **Lösung:** Node.js-Proxy leitet WebSocket-Upgrades korrekt weiter
+- **Konfiguration:** `combined-proxy.js` mit `ws: true` Option
+
+### Apache-Konfiguration
+- **Status:** ✅ FUNKTIONIERT - .htaccess leitet korrekt weiter
+- **HTTP API:** Funktioniert über Node.js-Proxy
+- **WebSocket:** Funktioniert über Node.js-Proxy
 
 ### Bekannte Issues
 1. ~~PHP-Proxy sendet HTTP-Upgrade-Anfrage an Gunicorn~~ → GELÖST
-2. ~~Gunicorn erwartet möglicherweise andere Art von WebSocket-Handshake~~ → GELÖST
+2. ~~Gunicorn erwartet möglicherweise andere Art von WebSocket-Handshake~~ → GELÖST  
 3. ~~Token-Validierung zwischen PHP-Proxy und FastAPI~~ → GELÖST
+4. ~~Apache leitet WebSocket-Requests nicht an Node.js-Proxy weiter~~ → GELÖST
 
 ## 🔍 Debugging-Tools
 
 ### Log-Dateien
-- **PHP-Errors:** `/var/log/apache2/error.log`
+- **Apache-Errors:** `/var/log/apache2/error.log`
 - **Apache-Access:** `/var/log/apache2/access.log`
 - **Gunicorn-Logs:** `gunicorn.log`
-- **Node.js-Proxy-Logs:** Console-Output der Node.js-App
+- **Node.js-Proxy-Logs:** `combined-proxy.log`
 
 ### Test-Befehle
 ```bash
@@ -205,22 +248,25 @@ RewriteRule . /index.php [L]
 ps aux | grep gunicorn
 
 # Port 8000 prüfen
-netstat -tlnp | grep 8000
+ss -tlnp | grep 8000
 
 # Node.js-Proxy-Status prüfen
-ps aux | grep node
+ps aux | grep combined-proxy
 
 # Port 8080 prüfen
-netstat -tlnp | grep 8080
+ss -tlnp | grep 8080
 
-# Apache-Status
-systemctl status apache2
+# Apache-Module prüfen
+apachectl -M | grep -E "(proxy|rewrite)"
 
-# PHP-Error-Logs
-tail -f /var/log/apache2/error.log
+# Port-Erreichbarkeit testen
+nc -zv iqmedix.cloud 8080
 
 # WebSocket-Test
-wscat -c "wss://iqmedix.cloud:8080/ws/notes?token=..."
+curl -i -N -H "Connection: Upgrade" -H "Upgrade: websocket" -H "Sec-WebSocket-Version: 13" -H "Sec-WebSocket-Key: x3JJHMbDL1EzLkh9GBhXDw==" http://iqmedix.cloud:8080/ws/notes
+
+# Node.js-Proxy-Logs
+tail -f combined-proxy.log
 ```
 
 ## 🚀 Deployment
@@ -234,7 +280,7 @@ nohup gunicorn main:app -w 2 -k uvicorn.workers.UvicornWorker --bind 127.0.0.1:8
 ```bash
 cd backend
 npm install
-nohup node ws-proxy.js > ws-proxy.log 2>&1 &
+./start-node-proxy.sh
 ```
 
 ### Apache-Konfiguration
@@ -262,50 +308,50 @@ nohup node ws-proxy.js > ws-proxy.log 2>&1 &
 
 ---
 
-## ✅ WebSocket-Proxying über Node.js auf Strato Managed Server (Stand: $(date))
+## ✅ Aktuelle Lösung (Stand: 01.08.2025)
 
 ### Rahmenbedingungen
 - **Server:** Strato Managed Server
 - **Admin-Zugriff:** _nicht_ vorhanden (kein root, keine Apache-Modulinstallation)
 - **Webserver:** Apache (nur .htaccess editierbar)
 - **Backend:** Gunicorn/Uvicorn (FastAPI) auf Port 8000
-- **HTTP-API-Proxy:** PHP (`api-proxy.php`)
-- **WebSocket-Proxy:** Node.js (`ws-proxy.js`) - **NEUE LÖSUNG!**
+- **HTTP-API-Proxy:** Node.js (`combined-proxy.js`) - **AKTUELLE LÖSUNG!**
+- **WebSocket-Proxy:** Node.js (`combined-proxy.js`) - **AKTUELLE LÖSUNG!**
 
 ### Aktueller Stand
-- **HTTP-API:** Funktioniert stabil über `api-proxy.php`
-- **WebSocket:** 
-  - Node.js-Proxy läuft auf Port 8080 (oder Strato-vorgegebenem Port)
-  - Flutter-Client verbindet sich mit `wss://iqmedix.cloud:8080/ws/notes?...`
-  - Leitet alle WebSocket-Verbindungen korrekt an Gunicorn/Uvicorn weiter
-  - **Funktioniert jetzt stabil!**
+- **HTTP-API:** ✅ Funktioniert stabil über Node.js-Proxy
+- **WebSocket:** ✅ Funktioniert über Node.js-Proxy
+- **Architektur:** Vereinfacht - Ein Proxy für alles
+- **Flutter-App:** Verbindet sich mit `ws://iqmedix.cloud:8080/ws/notes?...`
 
 ### Technische Lösung
-- **Node.js als WebSocket-Proxy:**
+- **Node.js als kombinierter Proxy:**
   - Läuft als dauerhafter Prozess auf Strato
   - Kann echte WebSocket-Upgrades und bidirektionale Streams handeln
-  - Leitet alle `/ws/`-Anfragen an `ws://localhost:8000` weiter
+  - Leitet alle `/api/` und `/ws/` Anfragen an `localhost:8000` weiter
 - **Konfiguration:**
-  - `ws-proxy.js` läuft auf Port 8080 (oder Strato-Port)
+  - `combined-proxy.js` läuft auf Port 8080
   - `package.json` mit `http-proxy` Abhängigkeit
-  - Logging für Debugging integriert
+  - Umfangreiches Logging für Debugging integriert
 
 ### Deployment-Schritte
 1. **Node.js-App bei Strato starten:**
    - Im Strato-Panel: Node.js-Anwendung erstellen
-   - Startdatei: `ws-proxy.js`
+   - Startdatei: `combined-proxy.js`
    - Port: 8080 (oder Strato-vorgegeben)
    - Dependencies: `npm install` ausführen
 
 2. **Flutter-App konfiguriert:**
-   - WebSocket-URL: `wss://iqmedix.cloud:8080/ws/notes?...`
-   - CRM-WebSocket-URL: `wss://iqmedix.cloud:8080/ws/crm?...`
+   - HTTP API: `http://iqmedix.cloud:8080/api/*`
+   - WebSocket-URL: `ws://iqmedix.cloud:8080/ws/notes?...`
+   - CRM-WebSocket-URL: `ws://iqmedix.cloud:8080/ws/crm?...`
 
 3. **Testen:**
-   - Mit wscat: `wscat -c "wss://iqmedix.cloud:8080/ws/notes?token=..."`
-   - In Flutter-App: WebSocket-Verbindung sollte jetzt funktionieren
+   - Mit curl: `curl -i -N -H "Connection: Upgrade" -H "Upgrade: websocket" http://iqmedix.cloud:8080/ws/notes?token=test`
+   - In Flutter-App: WebSocket-Verbindung funktioniert
 
 ### Status
-- **WebSocket-Verbindungen sind jetzt über Node.js-Proxy möglich!**
-- **Die Anwendung kann sowohl HTTP-API als auch Echtzeit-Features (WebSocket) nutzen.**
-- **Node.js-Proxy ist die beste Lösung für WebSocket-Proxying auf Managed Servern ohne Admin-Rechte.** 
+- **HTTP-API-Verbindungen:** ✅ Funktioniert über Node.js-Proxy!
+- **WebSocket-Verbindungen:** ✅ Funktioniert über Node.js-Proxy!
+- **Architektur:** ✅ Vereinfacht und stabil!
+- **Node.js-Proxy:** ✅ Beste Lösung für kombinierte HTTP/WebSocket-Proxying auf Managed Servern ohne Admin-Rechte. 

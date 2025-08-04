@@ -113,14 +113,28 @@ try {
 
 // HTTP-Server für alle Requests
 const httpServer = http.createServer((req, res) => {
+  console.log('=== HTTP-Request erhalten ===');
+  console.log('URL:', req.url);
+  console.log('Method:', req.method);
+  console.log('Headers:', JSON.stringify(req.headers, null, 2));
+  console.log('Connection:', req.headers.connection);
+  console.log('Upgrade:', req.headers.upgrade);
+  console.log('============================');
+
   // API-Pfade
   if (req.url.startsWith('/api/') && !req.url.startsWith('/api/ws/')) {
+    console.log('→ Leite API-Request weiter');
     apiProxy.web(req, res);
   } else if (req.url.startsWith('/ws/')) {
-    // WebSocket-Pfade als HTTP-Request - leite an WebSocket-Proxy weiter
-    console.log('WebSocket-Pfad als HTTP-Request erkannt:', req.url);
+    // WebSocket-Pfade zu WebSocket-Proxy (Port 8081) weiterleiten
+    console.log('→ Leite WebSocket-Request zu WebSocket-Proxy (Port 8081) weiter');
+    const wsProxy = httpProxy.createProxyServer({
+      target: 'http://localhost:8081',
+      changeOrigin: true
+    });
     wsProxy.web(req, res);
   } else {
+    console.log('→ 404 - Ungültiger Pfad');
     res.writeHead(404, { 'Content-Type': 'text/plain' });
     res.end('Nur API- und WebSocket-Pfade erlaubt');
   }
@@ -146,13 +160,20 @@ if (sslOptions) {
 
 // WebSocket-Upgrade-Handler für HTTP
 httpServer.on('upgrade', (req, socket, head) => {
-  console.log('HTTP WebSocket-Upgrade angefragt für:', req.url);
-  
-  // WebSocket-Pfade
+  console.log('=== HTTP WebSocket-Upgrade angefragt ===');
+  console.log('URL:', req.url);
+  console.log('Method:', req.method);
+  console.log('Headers:', JSON.stringify(req.headers, null, 2));
+  console.log('Connection:', req.headers.connection);
+  console.log('Upgrade:', req.headers.upgrade);
+  console.log('============================');
+
+  // WebSocket-Pfade direkt zu FastAPI weiterleiten
   if (req.url.startsWith('/ws/') || req.url.startsWith('/api/ws/')) {
+    console.log('→ Leite WebSocket-Upgrade zu FastAPI (Port 8000) weiter');
     wsProxy.ws(req, socket, head);
   } else {
-    console.log('Ungültiger WebSocket-Pfad:', req.url);
+    console.log('→ Ungültiger WebSocket-Pfad, schließe Verbindung');
     socket.destroy();
   }
 });
