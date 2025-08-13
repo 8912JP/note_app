@@ -1,0 +1,30 @@
+RewriteEngine On
+
+# CORS (optional; falls benötigt)
+Header always set Access-Control-Allow-Origin "https://iqmedix.cloud"
+Header always set Access-Control-Allow-Methods "GET, POST, PUT, DELETE, OPTIONS"
+Header always set Access-Control-Allow-Headers "Content-Type, Authorization, Upgrade, Connection, Sec-WebSocket-Key, Sec-WebSocket-Version, Sec-WebSocket-Protocol, Origin"
+Header always set Access-Control-Allow-Credentials "true"
+
+# OPTIONS Preflight direkt beantworten
+RewriteCond %{REQUEST_METHOD} OPTIONS
+RewriteRule ^ - [R=200,L]
+
+# WebSocket-Upgrade über wstunnel an Node-Proxy (WICHTIG: ws:// und Upgrade-Bedingungen)
+RewriteCond %{HTTP:Upgrade} =websocket [NC]
+RewriteCond %{HTTP:Connection} upgrade [NC]
+RewriteRule ^ws/(.*)$ ws://127.0.0.1:8080/ws/$1 [P,L]
+
+# API an Node-Proxy
+RewriteRule ^api/(.*)$ http://127.0.0.1:8080/api/$1 [P,L]
+
+# Statische Dateien direkt ausliefern
+RewriteCond %{REQUEST_FILENAME} -f
+RewriteRule ^ - [L]
+
+# Flutter Web SPA-Fallback
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^ index.html [L]
+
+

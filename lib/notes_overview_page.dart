@@ -20,6 +20,10 @@ class _NotesOverviewPageState extends State<NotesOverviewPage> {
   late final ApiService apiService;
   List<Note> allNotes = [];
   bool isLoading = true;
+  void Function(Map<String, dynamic>)? _wsListener;
+  void Function(dynamic error)? _wsErrorListener;
+  final Map<String, Timer> _wsDebouncers = {};
+  final Set<String> _pendingFetchIds = <String>{};
 
   // Filter-States
   String _searchText = "";
@@ -38,17 +42,14 @@ class _NotesOverviewPageState extends State<NotesOverviewPage> {
   }
 
   void _setupWebSocket() {
-  apiService.connectToWebSocket(
-    onEvent: (data) {
+    _wsListener = (data) {
       unawaited(_handleWebSocketEvent(data));
-    },
-    onError: (error) => debugPrint('❌ WebSocket Fehler: $error'),
-    enableReconnect: true,
-    forceEnable: true, // WebSocket aktiviert - Server läuft
-  );
-}
+    };
+    _wsErrorListener = (error) => debugPrint('❌ WebSocket Fehler: $error');
+    apiService.addWebSocketListener(_wsListener!, _wsErrorListener);
+  }
 
-Future<void> _handleWebSocketEvent(dynamic data) async {
+  Future<void> _handleWebSocketEvent(dynamic data) async {
   try {
     final String event = data['event'];
     final String? noteId = data['id']?.toString();
@@ -57,34 +58,18 @@ Future<void> _handleWebSocketEvent(dynamic data) async {
 
     switch (event) {
       case 'note_updated':
-        final updatedNote = await apiService.fetchNoteById(noteId);
-        if (updatedNote == null) return;
-        if (!mounted) return;
-        setState(() {
-          final index = allNotes.indexWhere((n) => n.id == updatedNote.id);
-          if (index != -1) {
-            allNotes[index] = updatedNote;
-          } else {
-            allNotes.add(updatedNote);
-          }
-        });
+        _debouncedFetchAndApply(noteId);
         break;
 
       case 'note_deleted':
         if (!mounted) return;
         setState(() {
-          allNotes.removeWhere((n) => n.id == noteId);
+          allNotes.removeWhere((n) => n.id.toString() == noteId);
         });
         break;
 
       case 'note_created':
-        final newNote = await apiService.fetchNoteById(noteId);
-        if (newNote == null || !mounted) return;
-        setState(() {
-          if (!allNotes.any((n) => n.id == newNote.id)) {
-            allNotes.add(newNote);
-          }
-        });
+        _debouncedFetchAndApply(noteId);
         break;
     }
   } catch (e, stack) {
@@ -92,6 +77,44 @@ Future<void> _handleWebSocketEvent(dynamic data) async {
     debugPrint('$stack'); // Zeigt dir, wo der Fehler auftrat
   }
 }
+
+  void _debouncedFetchAndApply(String noteId) {
+    // Bestehenden Debouncer für diese ID zurücksetzen
+    _wsDebouncers[noteId]?.cancel();
+    _wsDebouncers[noteId] = Timer(const Duration(milliseconds: 150), () {
+      _fetchAndApplyNote(noteId);
+    });
+  }
+
+  Future<void> _fetchAndApplyNote(String noteId) async {
+    if (_pendingFetchIds.contains(noteId)) return; // Duplikate vermeiden
+    _pendingFetchIds.add(noteId);
+    try {
+      final updatedNote = await apiService.fetchNoteById(noteId);
+      if (!mounted || updatedNote == null) return;
+      setState(() {
+        final index = allNotes.indexWhere((n) => n.id == updatedNote.id);
+        if (index != -1) {
+          allNotes[index] = updatedNote;
+        } else {
+          allNotes.add(updatedNote);
+        }
+      });
+    } catch (e) {
+      debugPrint('❌ Fehler beim Nachladen Note $noteId: $e');
+    } finally {
+      _pendingFetchIds.remove(noteId);
+    }
+  }
+
+  @override
+  void dispose() {
+    // WebSocket-Listener entfernen
+    if (_wsListener != null) {
+      apiService.removeWebSocketListener(_wsListener!);
+    }
+    super.dispose();
+  }
 
 
   Future<void> _loadNotes() async {

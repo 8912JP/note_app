@@ -9,7 +9,7 @@ class ApiService {
   ApiService._internal();
   factory ApiService() => _instance;
 
-  static const String baseUrl = 'http://iqmedix.cloud:8080';
+  static const String baseUrl = 'https://iqmedix.cloud';
   String? _accessToken;
   String? _loggedInUser;
   String? get loggedInUser => _loggedInUser;
@@ -151,11 +151,32 @@ class ApiService {
   }
 
   // ======================== 🔄 WEBSOCKET ========================
-  void connectToWebSocket({
-    required void Function(Map<String, dynamic> data) onEvent,
-    void Function(dynamic error)? onError,
+  List<void Function(Map<String, dynamic> data)> _webSocketListeners = [];
+  List<void Function(dynamic error)?> _webSocketErrorListeners = [];
+  
+  void addWebSocketListener(void Function(Map<String, dynamic> data) listener, void Function(dynamic error)? errorListener) {
+    _webSocketListeners.add(listener);
+    if (errorListener != null) {
+      _webSocketErrorListeners.add(errorListener);
+    }
+    
+    // Wenn noch keine Verbindung existiert, eine aufbauen
+    if (_channel == null) {
+      _connectToWebSocket();
+    }
+  }
+  
+  void removeWebSocketListener(void Function(Map<String, dynamic> data) listener) {
+    _webSocketListeners.remove(listener);
+    
+    // Wenn keine Listener mehr vorhanden sind, Verbindung schließen
+    if (_webSocketListeners.isEmpty) {
+      disconnectWebSocket();
+    }
+  }
+  
+  void _connectToWebSocket({
     bool enableReconnect = true,
-    bool forceEnable = false, // Neue Option um WebSocket zu erzwingen
   }) {
     if (_accessToken == null) {
       print("⚠️ Kein AccessToken vorhanden. WebSocket wird nicht verbunden.");
@@ -172,46 +193,84 @@ class ApiService {
     print("🔌 WebSocket wird über Node.js-Proxy aktiviert");
 
     try {
-      // WebSocket über Node.js-Proxy - Server läuft lokal
+      // WebSocket über Node.js-Proxy
       String wsUrl;
       
-      // WebSocket über Proxy zu FastAPI
-      wsUrl = 'ws://iqmedix.cloud:8080/ws/notes?token=$_accessToken';
+      // WebSocket-URL-Konstruktion mit Fallback-Optionen
+      if (baseUrl.startsWith('https')) {
+        // Primäre WebSocket-URL
+        wsUrl = 'wss://iqmedix.cloud/ws/notes?token=$_accessToken';
+        
+        // Alternative URLs für Fallback-Tests
+        // wsUrl = 'wss://iqmedix.cloud/api/ws/notes?token=$_accessToken';
+        // wsUrl = 'wss://iqmedix.cloud:8443/ws/notes?token=$_accessToken';
+      } else {
+        wsUrl = 'ws://iqmedix.cloud/ws/notes?token=$_accessToken';
+      }
+      
+      // Debug: Zeige alle relevanten Informationen
+      print("🔌 WebSocket Debug Info:");
+      print("  - AccessToken vorhanden: ${_accessToken != null}");
+      print("  - AccessToken Länge: ${_accessToken?.length ?? 0}");
+      print("  - AccessToken Start: ${_accessToken?.substring(0, 10)}...");
+      print("  - BaseUrl: $baseUrl");
+      print("  - WebSocket URL: $wsUrl");
+      print("  - WebSocket Listeners: ${_webSocketListeners.length}");
       
       print("🔌 Verbinde WebSocket: $wsUrl");
+      print("🔌 baseUrl: $baseUrl");
       
       // Verwende WebSocketChannel.connect direkt mit String-URL
-      _channel = WebSocketChannel.connect(
-        Uri.parse(wsUrl),
-      );
+      final uri = Uri.parse(wsUrl);
+      print("🔌 Parsed URI: $uri");
+      _channel = WebSocketChannel.connect(uri);
 
       _channel!.stream.listen(
         (message) {
           try {
             final data = json.decode(message);
             print("📥 WebSocket Nachricht: $data");
-            onEvent(data);
+            
+            // Benachrichtige alle Listener
+            for (var listener in _webSocketListeners) {
+              listener(data);
+            }
           } catch (e) {
             print("❌ Fehler beim Parsen der WebSocket-Nachricht: $e");
           }
         },
         onError: (error) {
           print("❌ WebSocket Fehler: $error");
+          print("❌ Fehler-Typ: ${error.runtimeType}");
+          print("❌ Fehler-Details: $error");
           
-          // Prüfe ob es ein HTTP 500 Fehler ist (Server-Problem)
+          // Spezifische Fehlerbehandlung
           if (error.toString().contains('HTTP status code: 500')) {
             print("⚠️ Server-Problem erkannt. Versuche später erneut...");
+          } else if (error.toString().contains('Connection refused')) {
+            print("⚠️ Verbindung verweigert. Server möglicherweise nicht erreichbar.");
+          } else if (error.toString().contains('HandshakeException')) {
+            print("⚠️ Handshake-Fehler. Möglicherweise SSL/TLS-Problem.");
+          } else if (error.toString().contains('SocketException')) {
+            print("⚠️ Socket-Fehler. Netzwerk-Problem.");
+          } else if (error.toString().contains('WebSocketException')) {
+            print("⚠️ WebSocket-spezifischer Fehler.");
+          } else if (error.toString().contains('timeout')) {
+            print("⚠️ Timeout-Fehler. Verbindung zu langsam.");
           }
           
-          if (onError != null) onError(error);
+          // Benachrichtige alle Error-Listener
+          for (var errorListener in _webSocketErrorListeners) {
+            if (errorListener != null) errorListener(error);
+          }
           _channel = null;
           
           // Automatischer Reconnect nach 5 Sekunden, aber nur wenn nicht manuell getrennt
           if (enableReconnect) {
             Future.delayed(const Duration(seconds: 5), () {
-              if (_channel == null && _accessToken != null) {
+              if (_channel == null && _accessToken != null && _webSocketListeners.isNotEmpty) {
                 print("🔄 Versuche Reconnect nach Fehler...");
-                connectToWebSocket(onEvent: onEvent, onError: onError, enableReconnect: enableReconnect);
+                _connectToWebSocket(enableReconnect: enableReconnect);
               }
             });
           }
@@ -223,9 +282,9 @@ class ApiService {
           // Automatischer Reconnect nach 5 Sekunden, aber nur wenn nicht manuell getrennt
           if (enableReconnect) {
             Future.delayed(const Duration(seconds: 5), () {
-              if (_channel == null && _accessToken != null) {
+              if (_channel == null && _accessToken != null && _webSocketListeners.isNotEmpty) {
                 print("🔄 Versuche Reconnect nach Verbindungsende...");
-                connectToWebSocket(onEvent: onEvent, onError: onError, enableReconnect: enableReconnect);
+                _connectToWebSocket(enableReconnect: enableReconnect);
               }
             });
           }
@@ -234,7 +293,11 @@ class ApiService {
       );
     } catch (e) {
       print("❌ Fehler beim Aufbau der WebSocket-Verbindung: $e");
-      if (onError != null) onError(e);
+      
+      // Benachrichtige alle Error-Listener
+      for (var errorListener in _webSocketErrorListeners) {
+        if (errorListener != null) errorListener(e);
+      }
       _channel = null;
     }
   }

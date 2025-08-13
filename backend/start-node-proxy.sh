@@ -7,8 +7,8 @@ echo "=== Node.js Combined Proxy Start-Skript ==="
 echo "Datum: $(date)"
 echo ""
 
-# Verzeichnis wechseln
-cd "$(dirname "$0")"
+# Verzeichnis wechseln (Proxy liegt in htdocs)
+cd "/pages/d0/aa/d0017222/home/htdocs"
 
 # Prüfen ob Node.js installiert ist
 if ! command -v node &> /dev/null; then
@@ -32,14 +32,11 @@ if [ ! -f "combined-proxy.js" ]; then
     exit 1
 fi
 
-# WebSocket-Proxy wird nicht mehr benötigt - WebSockets gehen direkt zu FastAPI
-
 # Alte Prozesse beenden
 echo "Beende alte Proxy-Prozesse..."
 pkill -f "combined-proxy.js" 2>/dev/null || true
 pkill -f "ws-proxy.js" 2>/dev/null || true
 pkill -f "api-proxy.js" 2>/dev/null || true
-# WebSocket-Proxy wird nicht mehr benötigt
 
 # Kurz warten
 sleep 2
@@ -53,8 +50,6 @@ fi
 if netstat -tlnp 2>/dev/null | grep -q ":8443 "; then
     echo "WARNUNG: Port 8443 ist bereits belegt!"
 fi
-
-# Port 8081 wird nicht mehr benötigt
 
 # Umgebungsvariablen setzen
 export HTTP_PORT=8080
@@ -80,8 +75,6 @@ echo $PROXY_PID > combined-proxy.pid
 
 echo "Combined Proxy gestartet mit PID: $PROXY_PID"
 echo ""
-
-# WebSocket-Proxy wird nicht mehr benötigt - WebSockets gehen direkt zu FastAPI
 
 # Kurz warten und Status prüfen
 sleep 3

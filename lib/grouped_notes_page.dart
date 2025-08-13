@@ -31,23 +31,10 @@ class _GroupedNotesPageState extends State<GroupedNotesPage> {
   }
 
   void _setupWebSocket() {
-    apiService.connectToWebSocket(onEvent: (data) async {
-      if (!mounted) return;
-
-      final id = data['id']?.toString();
-      switch (data['event']) {
-        case 'note_updated':
-        case 'note_created':
-          if (id == null) return;
-          final updated = await apiService.fetchNoteById(id);
-          if (updated != null) _updateOrInsertNote(updated);
-          break;
-        case 'note_deleted':
-          if (id == null) return;
-          _removeNoteById(id);
-          break;
-      }
-    });
+    apiService.addWebSocketListener(
+      _handleWebSocketEvent,
+      (error) => debugPrint('❌ WebSocket Fehler: $error'),
+    );
   }
 
   Future<void> _loadNotes() async {
@@ -97,6 +84,31 @@ class _GroupedNotesPageState extends State<GroupedNotesPage> {
         );
       }
     });
+  }
+
+  @override
+  void dispose() {
+    // WebSocket-Listener entfernen
+    apiService.removeWebSocketListener(_handleWebSocketEvent);
+    super.dispose();
+  }
+
+  void _handleWebSocketEvent(Map<String, dynamic> data) async {
+    if (!mounted) return;
+
+    final id = data['id']?.toString();
+    switch (data['event']) {
+      case 'note_updated':
+      case 'note_created':
+        if (id == null) return;
+        final updated = await apiService.fetchNoteById(id);
+        if (updated != null) _updateOrInsertNote(updated);
+        break;
+      case 'note_deleted':
+        if (id == null) return;
+        _removeNoteById(id);
+        break;
+    }
   }
 
   bool _applyFilters(Note note) {

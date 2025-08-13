@@ -1,0 +1,10 @@
+RewriteEngine On
+
+# Alle Anfragen ins htdocs-Verzeichnis routen (ohne Schleife)
+RewriteCond %{REQUEST_URI} !^/htdocs/
+RewriteRule ^(.*)$ /htdocs/$1 [L]
+
+# Optional: Verzeichnislisting aus
+Options -Indexes
+
+

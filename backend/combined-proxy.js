@@ -9,19 +9,24 @@ const apiProxy = httpProxy.createProxyServer({
   target: 'http://localhost:8000', // FastAPI Backend
   changeOrigin: true,
   timeout: 30000,
-  proxyTimeout: 30000
+  proxyTimeout: 30000,
+  xfwd: true, // X-Forwarded-For Header hinzufügen
 });
 
 // Proxy-Konfiguration für WebSocket
 const wsProxy = httpProxy.createProxyServer({
   target: 'ws://localhost:8000', // FastAPI Backend
   ws: true,
-  changeOrigin: true
+  changeOrigin: true,
+  timeout: 30000,
+  proxyTimeout: 30000,
+  xfwd: true, // X-Forwarded-For Header hinzufügen
 });
 
-// Logging für Debugging
+// Erweiterte Logging für Debugging
 apiProxy.on('error', (err, req, res) => {
-  console.error('API-Proxy-Fehler:', err);
+  console.error('❌ API-Proxy-Fehler:', err.message);
+  console.error('❌ API-Proxy-Fehler Details:', err);
   if (res && !res.headersSent) {
     res.writeHead(500, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: 'API Proxy error: ' + err.message }));
@@ -29,14 +34,15 @@ apiProxy.on('error', (err, req, res) => {
 });
 
 wsProxy.on('error', (err, req, socket) => {
-  console.error('WebSocket-Proxy-Fehler:', err);
+  console.error('❌ WebSocket-Proxy-Fehler:', err.message);
+  console.error('❌ WebSocket-Proxy-Fehler Details:', err);
   if (socket && !socket.destroyed) {
     socket.destroy();
   }
 });
 
 apiProxy.on('proxyReq', (proxyReq, req, res) => {
-  console.log('HTTP-API-Request für:', req.url, req.method);
+  console.log('📡 HTTP-API-Request für:', req.url, req.method);
   
   // CORS-Headers setzen
   res.setHeader('Access-Control-Allow-Origin', 'https://iqmedix.cloud');
@@ -47,6 +53,7 @@ apiProxy.on('proxyReq', (proxyReq, req, res) => {
   
   // OPTIONS Preflight Request
   if (req.method === 'OPTIONS') {
+    console.log('📡 OPTIONS Preflight Request behandelt');
     res.writeHead(200);
     res.end();
     return;
@@ -55,6 +62,7 @@ apiProxy.on('proxyReq', (proxyReq, req, res) => {
   // Authorization Header weiterleiten
   if (req.headers.authorization) {
     proxyReq.setHeader('Authorization', req.headers.authorization);
+    console.log('📡 Authorization Header weitergeleitet');
   }
   
   // Content-Type weiterleiten
@@ -67,12 +75,12 @@ apiProxy.on('proxyReq', (proxyReq, req, res) => {
   if (originalUrl.startsWith('/api/')) {
     const newPath = originalUrl.replace('/api/', '/');
     proxyReq.path = newPath;
-    console.log('API-Pfad angepasst von', originalUrl, 'zu', newPath);
+    console.log('📡 API-Pfad angepasst von', originalUrl, 'zu', newPath);
   }
 });
 
 apiProxy.on('proxyRes', (proxyRes, req, res) => {
-  console.log('HTTP-API-Response:', proxyRes.statusCode, 'für', req.url);
+  console.log('📡 HTTP-API-Response:', proxyRes.statusCode, 'für', req.url);
   
   // CORS-Headers auch in Response setzen
   res.setHeader('Access-Control-Allow-Origin', 'https://iqmedix.cloud');
@@ -80,19 +88,40 @@ apiProxy.on('proxyRes', (proxyRes, req, res) => {
 });
 
 wsProxy.on('proxyReqWs', (proxyReq, req, socket) => {
-  console.log('WebSocket-Upgrade für:', req.url);
+  console.log('🔌 WebSocket-Upgrade für:', req.url);
+  console.log('🔌 WebSocket-Headers:', JSON.stringify(req.headers, null, 2));
   
   // URL-Pfad anpassen für WebSocket
   const originalUrl = req.url;
   if (originalUrl.startsWith('/ws/')) {
     // WebSocket-Pfad bleibt gleich
-    console.log('WebSocket-Pfad:', originalUrl);
+    console.log('🔌 WebSocket-Pfad:', originalUrl);
   } else if (originalUrl.startsWith('/api/ws/')) {
     // api/ws/ zu /ws/ konvertieren
     const newPath = originalUrl.replace('/api/ws/', '/ws/');
     proxyReq.path = newPath;
-    console.log('WebSocket-Pfad angepasst von', originalUrl, 'zu', newPath);
+    console.log('🔌 WebSocket-Pfad angepasst von', originalUrl, 'zu', newPath);
   }
+  
+  // WebSocket-spezifische Headers weiterleiten
+  if (req.headers['sec-websocket-key']) {
+    proxyReq.setHeader('Sec-WebSocket-Key', req.headers['sec-websocket-key']);
+  }
+  if (req.headers['sec-websocket-version']) {
+    proxyReq.setHeader('Sec-WebSocket-Version', req.headers['sec-websocket-version']);
+  }
+  if (req.headers['sec-websocket-protocol']) {
+    proxyReq.setHeader('Sec-WebSocket-Protocol', req.headers['sec-websocket-protocol']);
+  }
+});
+
+// WebSocket-Verbindungs-Events
+wsProxy.on('open', (proxySocket) => {
+  console.log('🔌 WebSocket-Verbindung zu Backend geöffnet');
+});
+
+wsProxy.on('close', (proxySocket) => {
+  console.log('🔌 WebSocket-Verbindung zu Backend geschlossen');
 });
 
 // SSL-Zertifikate (falls verfügbar)
@@ -105,10 +134,10 @@ try {
       key: fs.readFileSync(path.join(certPath, 'key.pem')),
       cert: fs.readFileSync(path.join(certPath, 'cert.pem'))
     };
-    console.log('SSL-Zertifikate für Combined-Proxy geladen');
+    console.log('🔒 SSL-Zertifikate für Combined-Proxy geladen');
   }
 } catch (error) {
-  console.log('SSL-Zertifikate für Combined-Proxy nicht verfügbar, verwende HTTP');
+  console.log('⚠️ SSL-Zertifikate für Combined-Proxy nicht verfügbar, verwende HTTP');
 }
 
 // HTTP-Server für alle Requests
@@ -126,12 +155,8 @@ const httpServer = http.createServer((req, res) => {
     console.log('→ Leite API-Request weiter');
     apiProxy.web(req, res);
   } else if (req.url.startsWith('/ws/')) {
-    // WebSocket-Pfade zu WebSocket-Proxy (Port 8081) weiterleiten
-    console.log('→ Leite WebSocket-Request zu WebSocket-Proxy (Port 8081) weiter');
-    const wsProxy = httpProxy.createProxyServer({
-      target: 'http://localhost:8081',
-      changeOrigin: true
-    });
+    // WebSocket-Pfade als HTTP-Request - leite an FastAPI weiter
+    console.log('→ Leite WebSocket-Request zu FastAPI (Port 8000) weiter');
     wsProxy.web(req, res);
   } else {
     console.log('→ 404 - Ungültiger Pfad');
@@ -144,6 +169,11 @@ const httpServer = http.createServer((req, res) => {
 let httpsServer = null;
 if (sslOptions) {
   httpsServer = https.createServer(sslOptions, (req, res) => {
+    console.log('=== HTTPS-Request erhalten ===');
+    console.log('URL:', req.url);
+    console.log('Method:', req.method);
+    console.log('============================');
+    
     // API-Pfade
     if (req.url.startsWith('/api/') && !req.url.startsWith('/api/ws/')) {
       apiProxy.web(req, res);
@@ -181,13 +211,18 @@ httpServer.on('upgrade', (req, socket, head) => {
 // WebSocket-Upgrade-Handler für HTTPS (falls verfügbar)
 if (httpsServer) {
   httpsServer.on('upgrade', (req, socket, head) => {
-    console.log('HTTPS WebSocket-Upgrade angefragt für:', req.url);
+    console.log('=== HTTPS WebSocket-Upgrade angefragt ===');
+    console.log('URL:', req.url);
+    console.log('Method:', req.method);
+    console.log('Headers:', JSON.stringify(req.headers, null, 2));
+    console.log('============================');
     
     // WebSocket-Pfade
     if (req.url.startsWith('/ws/') || req.url.startsWith('/api/ws/')) {
+      console.log('→ Leite HTTPS WebSocket-Upgrade zu FastAPI (Port 8000) weiter');
       wsProxy.ws(req, socket, head);
     } else {
-      console.log('Ungültiger WebSocket-Pfad:', req.url);
+      console.log('→ Ungültiger WebSocket-Pfad:', req.url);
       socket.destroy();
     }
   });
@@ -198,43 +233,49 @@ const HTTP_PORT = process.env.HTTP_PORT || 8080;
 const HTTPS_PORT = process.env.HTTPS_PORT || 8443;
 
 httpServer.listen(HTTP_PORT, () => {
-  console.log(`HTTP Combined-Proxy läuft auf Port ${HTTP_PORT}`);
-  console.log(`Leitet API-Anfragen an http://localhost:8000 weiter`);
-  console.log(`Leitet WebSocket-Verbindungen an ws://localhost:8000 weiter`);
+  console.log(`🚀 HTTP Combined-Proxy läuft auf Port ${HTTP_PORT}`);
+  console.log(`📡 Leitet API-Anfragen an http://localhost:8000 weiter`);
+  console.log(`🔌 Leitet WebSocket-Verbindungen an ws://localhost:8000 weiter`);
+  console.log(`🌐 Verfügbare Endpunkte:`);
+  console.log(`   - API: http://localhost:${HTTP_PORT}/api/*`);
+  console.log(`   - WebSocket: ws://localhost:${HTTP_PORT}/ws/*`);
 });
 
 if (httpsServer) {
   httpsServer.listen(HTTPS_PORT, () => {
-    console.log(`HTTPS Combined-Proxy läuft auf Port ${HTTPS_PORT}`);
-    console.log(`Leitet API-Anfragen an http://localhost:8000 weiter`);
-    console.log(`Leitet WebSocket-Verbindungen an ws://localhost:8000 weiter`);
+    console.log(`🚀 HTTPS Combined-Proxy läuft auf Port ${HTTPS_PORT}`);
+    console.log(`📡 Leitet API-Anfragen an http://localhost:8000 weiter`);
+    console.log(`🔌 Leitet WebSocket-Verbindungen an ws://localhost:8000 weiter`);
+    console.log(`🌐 Verfügbare Endpunkte:`);
+    console.log(`   - API: https://localhost:${HTTPS_PORT}/api/*`);
+    console.log(`   - WebSocket: wss://localhost:${HTTPS_PORT}/ws/*`);
   });
 } else {
-  console.log('HTTPS Combined-Proxy nicht verfügbar - nur HTTP aktiv');
+  console.log('⚠️ HTTPS Combined-Proxy nicht verfügbar - nur HTTP aktiv');
 }
 
 // Graceful Shutdown
 process.on('SIGTERM', () => {
-  console.log('Combined-Proxy wird beendet...');
+  console.log('🛑 Combined-Proxy wird beendet...');
   httpServer.close(() => {
-    console.log('HTTP Combined-Proxy beendet');
+    console.log('✅ HTTP Combined-Proxy beendet');
   });
   if (httpsServer) {
     httpsServer.close(() => {
-      console.log('HTTPS Combined-Proxy beendet');
+      console.log('✅ HTTPS Combined-Proxy beendet');
     });
   }
   process.exit(0);
 });
 
 process.on('SIGINT', () => {
-  console.log('Combined-Proxy wird beendet...');
+  console.log('🛑 Combined-Proxy wird beendet...');
   httpServer.close(() => {
-    console.log('HTTP Combined-Proxy beendet');
+    console.log('✅ HTTP Combined-Proxy beendet');
   });
   if (httpsServer) {
     httpsServer.close(() => {
-      console.log('HTTPS Combined-Proxy beendet');
+      console.log('✅ HTTPS Combined-Proxy beendet');
     });
   }
   process.exit(0);

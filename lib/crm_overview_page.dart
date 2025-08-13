@@ -166,8 +166,8 @@ class CRMOverviewPageState extends State<CRMOverviewPage> {
     // CRM WebSocket über Node.js-Proxy aktiviert
     log("🔌 CRM WebSocket wird über Node.js-Proxy aktiviert");
 
-                    // WebSocket über Node.js-Proxy zu FastAPI
-            final wsUrl = 'ws://iqmedix.cloud:8080/ws/crm?token=$token';
+                    // WebSocket über Proxy zu FastAPI
+            final wsUrl = 'ws://iqmedix.cloud/ws/crm?token=$token';
     log("🔌 Verbinde CRM WebSocket: $wsUrl");
     
     _channel = WebSocketChannel.connect(
