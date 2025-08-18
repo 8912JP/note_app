@@ -22,8 +22,8 @@ class _NotesOverviewPageState extends State<NotesOverviewPage> {
   bool isLoading = true;
   void Function(Map<String, dynamic>)? _wsListener;
   void Function(dynamic error)? _wsErrorListener;
-  final Map<String, Timer> _wsDebouncers = {};
-  final Set<String> _pendingFetchIds = <String>{};
+  // Vereinfachte Event-Verarbeitung: keine Buffer/Debounce
+  final Set<int> _updatingNoteIds = <int>{};
 
   // Filter-States
   String _searchText = "";
@@ -39,13 +39,58 @@ class _NotesOverviewPageState extends State<NotesOverviewPage> {
     apiService = widget.apiService;
     _loadNotes();
     _setupWebSocket();
+    _startWebSocketMonitoring();
+  }
+
+  Timer? _wsMonitoringTimer;
+
+  void _startWebSocketMonitoring() {
+    // Überwache WebSocket-Status alle 30 Sekunden
+    _wsMonitoringTimer = Timer.periodic(Duration(seconds: 30), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      
+      final isConnected = apiService.isWebSocketConnected();
+      print('🔍 WebSocket Monitoring: ${isConnected ? "Verbunden" : "Nicht verbunden"}');
+      
+      // Wenn nicht verbunden und Listener vorhanden, versuche Reconnect
+      if (!isConnected && _wsListener != null) {
+        print('⚠️ WebSocket nicht verbunden, aber Listener vorhanden. Versuche Reconnect...');
+        apiService.removeWebSocketListener(_wsListener!);
+        apiService.addWebSocketListener(_wsListener!, _wsErrorListener);
+      }
+    });
   }
 
   void _setupWebSocket() {
     _wsListener = (data) {
+      print("📥 WebSocket Event in NotesOverview: $data");
       unawaited(_handleWebSocketEvent(data));
     };
-    _wsErrorListener = (error) => debugPrint('❌ WebSocket Fehler: $error');
+    _wsErrorListener = (error) {
+      debugPrint('❌ WebSocket Fehler in NotesOverview: $error');
+      print('❌ WebSocket Fehler Details: $error');
+      print('❌ Fehler-Typ: ${error.runtimeType}');
+      
+      // Zeige WebSocket-Status
+      print('🔌 WebSocket Status: ${apiService.isWebSocketConnected() ? "Verbunden" : "Nicht verbunden"}');
+      
+      // Versuche manuellen Reconnect bei kritischen Fehlern
+      if (error.toString().contains('Connection refused') || 
+          error.toString().contains('SocketException') ||
+          error.toString().contains('timeout')) {
+        print('🔄 Versuche manuellen Reconnect...');
+        // Kurze Verzögerung, dann neu verbinden
+        Future.delayed(Duration(seconds: 2), () {
+          if (mounted) {
+            apiService.removeWebSocketListener(_wsListener!);
+            apiService.addWebSocketListener(_wsListener!, _wsErrorListener);
+          }
+        });
+      }
+    };
     apiService.addWebSocketListener(_wsListener!, _wsErrorListener);
   }
 
@@ -57,8 +102,32 @@ class _NotesOverviewPageState extends State<NotesOverviewPage> {
     if (!mounted || noteId == null) return;
 
     switch (event) {
-      case 'note_updated':
-        _debouncedFetchAndApply(noteId);
+        case 'note_updated':
+        if (data is Map && data['note'] != null) {
+          final incoming = Note.fromJson(Map<String, dynamic>.from(data['note']));
+          if (!mounted) return;
+          setState(() {
+            final idx = allNotes.indexWhere((n) => n.id == incoming.id);
+            if (idx != -1) {
+              allNotes[idx] = incoming;
+            } else {
+              allNotes.add(incoming);
+            }
+          });
+        } else {
+          // Fallback: Note nachladen, falls Event ohne payload kommt
+          final fetched = await apiService.fetchNoteById(noteId);
+          if (fetched != null && mounted) {
+            setState(() {
+              final idx = allNotes.indexWhere((n) => n.id == fetched.id);
+              if (idx != -1) {
+                allNotes[idx] = fetched;
+              } else {
+                allNotes.add(fetched);
+              }
+            });
+          }
+        }
         break;
 
       case 'note_deleted':
@@ -68,8 +137,26 @@ class _NotesOverviewPageState extends State<NotesOverviewPage> {
         });
         break;
 
-      case 'note_created':
-        _debouncedFetchAndApply(noteId);
+        case 'note_created':
+        if (data is Map && data['note'] != null) {
+          final incoming = Note.fromJson(Map<String, dynamic>.from(data['note']));
+          if (!mounted) return;
+          setState(() {
+            if (!allNotes.any((n) => n.id == incoming.id)) {
+              allNotes.add(incoming);
+            }
+          });
+        } else {
+          // Fallback: Note nachladen
+          final fetched = await apiService.fetchNoteById(noteId);
+          if (fetched != null && mounted) {
+            setState(() {
+              if (!allNotes.any((n) => n.id == fetched.id)) {
+                allNotes.add(fetched);
+              }
+            });
+          }
+        }
         break;
     }
   } catch (e, stack) {
@@ -78,34 +165,7 @@ class _NotesOverviewPageState extends State<NotesOverviewPage> {
   }
 }
 
-  void _debouncedFetchAndApply(String noteId) {
-    // Bestehenden Debouncer für diese ID zurücksetzen
-    _wsDebouncers[noteId]?.cancel();
-    _wsDebouncers[noteId] = Timer(const Duration(milliseconds: 150), () {
-      _fetchAndApplyNote(noteId);
-    });
-  }
-
-  Future<void> _fetchAndApplyNote(String noteId) async {
-    if (_pendingFetchIds.contains(noteId)) return; // Duplikate vermeiden
-    _pendingFetchIds.add(noteId);
-    try {
-      final updatedNote = await apiService.fetchNoteById(noteId);
-      if (!mounted || updatedNote == null) return;
-      setState(() {
-        final index = allNotes.indexWhere((n) => n.id == updatedNote.id);
-        if (index != -1) {
-          allNotes[index] = updatedNote;
-        } else {
-          allNotes.add(updatedNote);
-        }
-      });
-    } catch (e) {
-      debugPrint('❌ Fehler beim Nachladen Note $noteId: $e');
-    } finally {
-      _pendingFetchIds.remove(noteId);
-    }
-  }
+  // keine zusätzlichen HTTP-Fetches oder Buffer nötig
 
   @override
   void dispose() {
@@ -113,6 +173,8 @@ class _NotesOverviewPageState extends State<NotesOverviewPage> {
     if (_wsListener != null) {
       apiService.removeWebSocketListener(_wsListener!);
     }
+    // Monitoring-Timer stoppen
+    _wsMonitoringTimer?.cancel();
     super.dispose();
   }
 
@@ -175,6 +237,10 @@ class _NotesOverviewPageState extends State<NotesOverviewPage> {
   }
 
   void _toggleDone(Note note) async {
+    if (note.id == null) return;
+    if (_updatingNoteIds.contains(note.id)) return; // schon in Arbeit
+    _updatingNoteIds.add(note.id!);
+    setState(() {});
     final updatedNote = Note(
       id: note.id,
       firstName: note.firstName,
@@ -198,6 +264,8 @@ class _NotesOverviewPageState extends State<NotesOverviewPage> {
     } catch (e) {
       print('Fehler beim Aktualisieren der Notiz: $e');
     }
+    _updatingNoteIds.remove(note.id);
+    if (mounted) setState(() {});
   }
 
   void _deleteNote(Note note) async {
@@ -358,6 +426,46 @@ class _NotesOverviewPageState extends State<NotesOverviewPage> {
     );
   }
 
+  void _showWebSocketDebugInfo() {
+    final isConnected = apiService.isWebSocketConnected();
+    final listenerCount = apiService.getWebSocketListenerCount();
+    final errorListenerCount = apiService.getWebSocketErrorListenerCount();
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('WebSocket Debug Info'),
+        content: SingleChildScrollView(
+          child: ListBody(
+            children: [
+              const Text('WebSocket Status:', style: TextStyle(fontWeight: FontWeight.bold)),
+              Text('Verbunden: ${isConnected ? "✅ Ja" : "❌ Nein"}'),
+              const SizedBox(height: 10),
+              const Text('Listener Status:', style: TextStyle(fontWeight: FontWeight.bold)),
+              Text('Allgemein: $listenerCount'),
+              Text('Fehler: $errorListenerCount'),
+              const SizedBox(height: 10),
+              const Text('Debug Aktionen:', style: TextStyle(fontWeight: FontWeight.bold)),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              apiService.forceReconnect();
+              Navigator.pop(context);
+            },
+            child: const Text('Reconnect erzwingen'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Schließen'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final visibleNotes = allNotes.where(_applyFilters).toList();
@@ -392,6 +500,20 @@ class _NotesOverviewPageState extends State<NotesOverviewPage> {
             ),
           ),
         ),
+        actions: [
+          // Debug-Button für WebSocket-Status
+          IconButton(
+            icon: Icon(Icons.bug_report),
+            onPressed: () {
+              _showWebSocketDebugInfo();
+            },
+            tooltip: 'WebSocket Debug Info',
+          ),
+          IconButton(
+            icon: Icon(Icons.refresh),
+            onPressed: _loadNotes,
+          ),
+        ],
       ),
       body: isLoading
           ? const Center(child: CircularProgressIndicator())
@@ -406,7 +528,9 @@ class _NotesOverviewPageState extends State<NotesOverviewPage> {
                         enabled: !note.isDone,
                         leading: Checkbox(
                           value: note.isDone,
-                          onChanged: (_) => _toggleDone(note),
+                          onChanged: _updatingNoteIds.contains(note.id ?? -1)
+                              ? null
+                              : (_) => _toggleDone(note),
                         ),
                         title: Text(
                           "${note.firstName} ${note.lastName}",

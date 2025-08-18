@@ -33,7 +33,31 @@ class _GroupedNotesPageState extends State<GroupedNotesPage> {
   void _setupWebSocket() {
     apiService.addWebSocketListener(
       _handleWebSocketEvent,
-      (error) => debugPrint('❌ WebSocket Fehler: $error'),
+      (error) {
+        debugPrint('❌ WebSocket Fehler in GroupedNotes: $error');
+        print('❌ WebSocket Fehler Details: $error');
+        print('❌ Fehler-Typ: ${error.runtimeType}');
+        
+        // Zeige WebSocket-Status
+        print('🔌 WebSocket Status: ${apiService.isWebSocketConnected() ? "Verbunden" : "Nicht verbunden"}');
+        
+        // Versuche manuellen Reconnect bei kritischen Fehlern
+        if (error.toString().contains('Connection refused') || 
+            error.toString().contains('SocketException') ||
+            error.toString().contains('timeout')) {
+          print('🔄 Versuche manuellen Reconnect in GroupedNotes...');
+          // Kurze Verzögerung, dann neu verbinden
+          Future.delayed(Duration(seconds: 2), () {
+            if (mounted) {
+              apiService.removeWebSocketListener(_handleWebSocketEvent);
+              apiService.addWebSocketListener(
+                _handleWebSocketEvent,
+                (error) => debugPrint('❌ WebSocket Fehler in GroupedNotes: $error'),
+              );
+            }
+          });
+        }
+      },
     );
   }
 
@@ -100,6 +124,11 @@ class _GroupedNotesPageState extends State<GroupedNotesPage> {
     switch (data['event']) {
       case 'note_updated':
       case 'note_created':
+        if (data['note'] != null) {
+          final incoming = Note.fromJson(Map<String, dynamic>.from(data['note']));
+          _updateOrInsertNote(incoming);
+          break;
+        }
         if (id == null) return;
         final updated = await apiService.fetchNoteById(id);
         if (updated != null) _updateOrInsertNote(updated);

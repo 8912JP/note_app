@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:async';
 import 'package:http/http.dart' as http;
 import 'package:note_app/note.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
@@ -16,6 +17,7 @@ class ApiService {
   String? get accessToken => _accessToken;
 
   WebSocketChannel? _channel;
+  Timer? _wsHeartbeatTimer;
 
   // ======================== 🔐 AUTH ========================
   Future<bool> login(String username, String password) async {
@@ -151,8 +153,15 @@ class ApiService {
   }
 
   // ======================== 🔄 WEBSOCKET ========================
-  List<void Function(Map<String, dynamic> data)> _webSocketListeners = [];
-  List<void Function(dynamic error)?> _webSocketErrorListeners = [];
+  final List<void Function(Map<String, dynamic> data)> _webSocketListeners = [];
+  final List<void Function(dynamic error)?> _webSocketErrorListeners = [];
+  
+  // Verbesserte WebSocket-Verwaltung
+  bool _isConnecting = false;
+  bool _isDisconnecting = false;
+  int _reconnectAttempts = 0;
+  static const int _maxReconnectAttempts = 5;
+  Timer? _reconnectTimer;
   
   void addWebSocketListener(void Function(Map<String, dynamic> data) listener, void Function(dynamic error)? errorListener) {
     _webSocketListeners.add(listener);
@@ -161,7 +170,7 @@ class ApiService {
     }
     
     // Wenn noch keine Verbindung existiert, eine aufbauen
-    if (_channel == null) {
+    if (_channel == null && !_isConnecting) {
       _connectToWebSocket();
     }
   }
@@ -183,14 +192,14 @@ class ApiService {
       return;
     }
 
-    // Prüfe ob bereits eine Verbindung existiert
-    if (_channel != null) {
-      print("⚠️ WebSocket-Verbindung bereits aktiv.");
+    // Prüfe ob bereits eine Verbindung existiert oder gerade aufgebaut wird
+    if (_channel != null || _isConnecting) {
+      print("⚠️ WebSocket-Verbindung bereits aktiv oder wird aufgebaut.");
       return;
     }
 
-    // WebSocket über Node.js-Proxy aktiviert
-    print("🔌 WebSocket wird über Node.js-Proxy aktiviert");
+    _isConnecting = true;
+    print("🔌 WebSocket wird über Node.js-Proxy aktiviert (Versuch ${_reconnectAttempts + 1})");
 
     try {
       // WebSocket über Node.js-Proxy
@@ -200,10 +209,6 @@ class ApiService {
       if (baseUrl.startsWith('https')) {
         // Primäre WebSocket-URL
         wsUrl = 'wss://iqmedix.cloud/ws/notes?token=$_accessToken';
-        
-        // Alternative URLs für Fallback-Tests
-        // wsUrl = 'wss://iqmedix.cloud/api/ws/notes?token=$_accessToken';
-        // wsUrl = 'wss://iqmedix.cloud:8443/ws/notes?token=$_accessToken';
       } else {
         wsUrl = 'ws://iqmedix.cloud/ws/notes?token=$_accessToken';
       }
@@ -216,27 +221,47 @@ class ApiService {
       print("  - BaseUrl: $baseUrl");
       print("  - WebSocket URL: $wsUrl");
       print("  - WebSocket Listeners: ${_webSocketListeners.length}");
+      print("  - Reconnect Versuche: $_reconnectAttempts");
       
       print("🔌 Verbinde WebSocket: $wsUrl");
-      print("🔌 baseUrl: $baseUrl");
       
       // Verwende WebSocketChannel.connect direkt mit String-URL
       final uri = Uri.parse(wsUrl);
       print("🔌 Parsed URI: $uri");
       _channel = WebSocketChannel.connect(uri);
 
+      // Starte Heartbeat, um die Verbindung aktiv zu halten (Proxy-Idle-Timeout vermeiden)
+      _wsHeartbeatTimer?.cancel();
+      _wsHeartbeatTimer = Timer.periodic(const Duration(seconds: 10), (_) {
+        try {
+          if (_channel != null && !_isDisconnecting) {
+            _channel?.sink.add('{"type":"ping","timestamp":"${DateTime.now().toIso8601String()}"}');
+            print("↪️ WS ping gesendet - ${DateTime.now().toIso8601String()}");
+          }
+        } catch (e) {
+          print("❌ Fehler beim Senden des Heartbeats: $e");
+          // Bei Heartbeat-Fehler Verbindung neu aufbauen
+          _scheduleReconnect();
+        }
+      });
+
       _channel!.stream.listen(
         (message) {
           try {
             final data = json.decode(message);
-            print("📥 WebSocket Nachricht: $data");
+            print("📥 WebSocket Nachricht empfangen: $data");
             
             // Benachrichtige alle Listener
             for (var listener in _webSocketListeners) {
-              listener(data);
+              try {
+                listener(data);
+              } catch (e) {
+                print("❌ Fehler in WebSocket-Listener: $e");
+              }
             }
           } catch (e) {
             print("❌ Fehler beim Parsen der WebSocket-Nachricht: $e");
+            print("❌ Rohe Nachricht: $message");
           }
         },
         onError: (error) {
@@ -261,51 +286,143 @@ class ApiService {
           
           // Benachrichtige alle Error-Listener
           for (var errorListener in _webSocketErrorListeners) {
-            if (errorListener != null) errorListener(error);
-          }
-          _channel = null;
-          
-          // Automatischer Reconnect nach 5 Sekunden, aber nur wenn nicht manuell getrennt
-          if (enableReconnect) {
-            Future.delayed(const Duration(seconds: 5), () {
-              if (_channel == null && _accessToken != null && _webSocketListeners.isNotEmpty) {
-                print("🔄 Versuche Reconnect nach Fehler...");
-                _connectToWebSocket(enableReconnect: enableReconnect);
+            if (errorListener != null) {
+              try {
+                errorListener(error);
+              } catch (e) {
+                print("❌ Fehler in Error-Listener: $e");
               }
-            });
+            }
+          }
+          
+          _cleanupWebSocket();
+          
+          // Automatischer Reconnect nach Fehler
+          if (enableReconnect) {
+            _scheduleReconnect();
           }
         },
         onDone: () {
           print("🔌 WebSocket Verbindung geschlossen.");
-          _channel = null;
+          _cleanupWebSocket();
           
-          // Automatischer Reconnect nach 5 Sekunden, aber nur wenn nicht manuell getrennt
+          // Automatischer Reconnect nach Verbindungsende
           if (enableReconnect) {
-            Future.delayed(const Duration(seconds: 5), () {
-              if (_channel == null && _accessToken != null && _webSocketListeners.isNotEmpty) {
-                print("🔄 Versuche Reconnect nach Verbindungsende...");
-                _connectToWebSocket(enableReconnect: enableReconnect);
-              }
-            });
+            _scheduleReconnect();
           }
         },
         cancelOnError: false,
       );
+      
+      _isConnecting = false;
+      _reconnectAttempts = 0; // Reset bei erfolgreicher Verbindung
+      print("✅ WebSocket-Verbindung erfolgreich aufgebaut");
+      
     } catch (e) {
       print("❌ Fehler beim Aufbau der WebSocket-Verbindung: $e");
+      _isConnecting = false;
       
       // Benachrichtige alle Error-Listener
       for (var errorListener in _webSocketErrorListeners) {
-        if (errorListener != null) errorListener(e);
+        if (errorListener != null) {
+          try {
+            errorListener(e);
+          } catch (listenerError) {
+            print("❌ Fehler in Error-Listener: $listenerError");
+          }
+        }
       }
-      _channel = null;
+      
+      _cleanupWebSocket();
+      
+      // Automatischer Reconnect nach Fehler
+      if (enableReconnect) {
+        _scheduleReconnect();
+      }
     }
   }
 
-  void disconnectWebSocket() {
-    print("❌ WebSocket wird geschlossen...");
+  void _cleanupWebSocket() {
     _channel?.sink.close();
     _channel = null;
+    _wsHeartbeatTimer?.cancel();
+    _wsHeartbeatTimer = null;
+    _isConnecting = false;
+  }
+
+  void _scheduleReconnect() {
+    if (_reconnectAttempts >= _maxReconnectAttempts) {
+      print("❌ Maximale Reconnect-Versuche erreicht. Stoppe automatische Verbindungsversuche.");
+      return;
+    }
+    
+    if (_webSocketListeners.isEmpty) {
+      print("ℹ️ Keine WebSocket-Listener mehr vorhanden. Kein Reconnect nötig.");
+      return;
+    }
+    
+    _reconnectAttempts++;
+    final delay = Duration(seconds: _reconnectAttempts * 2); // Exponentieller Backoff
+    
+    print("🔄 Plane Reconnect in ${delay.inSeconds} Sekunden (Versuch $_reconnectAttempts/$_maxReconnectAttempts)");
+    
+    _reconnectTimer?.cancel();
+    _reconnectTimer = Timer(delay, () {
+      if (_channel == null && _accessToken != null && _webSocketListeners.isNotEmpty && !_isDisconnecting) {
+        print("🔄 Führe Reconnect durch...");
+        _connectToWebSocket(enableReconnect: true);
+      }
+    });
+  }
+
+  void disconnectWebSocket() {
+    print("❌ WebSocket wird manuell geschlossen...");
+    _isDisconnecting = true;
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
+    _reconnectAttempts = 0;
+    _cleanupWebSocket();
+    _isDisconnecting = false;
+  }
+
+  // Hilfsmethode zum Testen der WebSocket-Verbindung
+  bool isWebSocketConnected() {
+    return _channel != null && !_isConnecting && !_isDisconnecting;
+  }
+
+  // Hilfsmethode zum manuellen Senden von Nachrichten
+  void sendWebSocketMessage(Map<String, dynamic> message) {
+    if (_channel != null && !_isDisconnecting) {
+      try {
+        final jsonMessage = json.encode(message);
+        _channel!.sink.add(jsonMessage);
+        print("📤 WebSocket Nachricht gesendet: $jsonMessage");
+      } catch (e) {
+        print("❌ Fehler beim Senden der WebSocket-Nachricht: $e");
+      }
+    } else {
+      print("⚠️ WebSocket nicht verbunden. Nachricht kann nicht gesendet werden.");
+    }
+  }
+
+  // Debug-Methoden für WebSocket-Status
+  int getWebSocketListenerCount() {
+    return _webSocketListeners.length;
+  }
+
+  int getWebSocketErrorListenerCount() {
+    return _webSocketErrorListeners.length;
+  }
+
+  // Methode zum manuellen Reconnect
+  void forceReconnect() {
+    print("🔄 Manueller WebSocket-Reconnect wird erzwungen...");
+    disconnectWebSocket();
+    Future.delayed(Duration(seconds: 1), () {
+      if (_webSocketListeners.isNotEmpty) {
+        _connectToWebSocket(enableReconnect: true);
+      }
+    });
   }
 
   Future<List<List<Note>>> fetchGroupedNotes() async {
