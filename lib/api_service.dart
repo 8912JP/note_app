@@ -19,6 +19,48 @@ class ApiService {
   WebSocketChannel? _channel;
   Timer? _wsHeartbeatTimer;
 
+  // Automatische Reconnect-Logik für Server-Client-Desynchronisation
+  Timer? _autoReconnectTimer;
+  bool _isAutoReconnecting = false;
+
+  void _startAutoReconnectMonitoring() {
+    _autoReconnectTimer?.cancel();
+    _autoReconnectTimer = Timer.periodic(Duration(seconds: 30), (timer) async {
+      if (_isAutoReconnecting || _isConnecting || _isDisconnecting) return;
+      
+      try {
+        // Prüfe Server-Status
+        final status = await getWebSocketStatus();
+        final serverClientCount = status?['active_clients'] ?? 0;
+        final isConnected = isWebSocketConnected();
+        
+        print("🔍 Auto-Reconnect Check: Server=$serverClientCount Clients, Client=${isConnected ? 'verbunden' : 'getrennt'}");
+        
+        // Wenn Server 0 Clients meldet, aber wir denken wir sind verbunden
+        if (serverClientCount == 0 && isConnected) {
+          print("⚠️ Server meldet 0 Clients, aber Client denkt er ist verbunden - Reconnect nötig");
+          _isAutoReconnecting = true;
+          forceReconnect();
+          _isAutoReconnecting = false;
+        }
+        // Wenn wir nicht verbunden sind, aber Server Clients meldet
+        else if (serverClientCount > 0 && !isConnected) {
+          print("⚠️ Client ist getrennt, aber Server meldet $serverClientCount Clients - Reconnect nötig");
+          _isAutoReconnecting = true;
+          forceReconnect();
+          _isAutoReconnecting = false;
+        }
+      } catch (e) {
+        print("❌ Fehler beim Auto-Reconnect Check: $e");
+      }
+    });
+  }
+
+  void _stopAutoReconnectMonitoring() {
+    _autoReconnectTimer?.cancel();
+    _autoReconnectTimer = null;
+  }
+
   // ======================== 🔐 AUTH ========================
   Future<bool> login(String username, String password) async {
     final response = await http.post(
@@ -417,6 +459,9 @@ class ApiService {
       _reconnectAttempts = 0; // Reset bei erfolgreicher Verbindung
       print("✅ WebSocket-Verbindung erfolgreich aufgebaut");
       
+      // Starte Auto-Reconnect-Monitoring
+      _startAutoReconnectMonitoring();
+      
       // Release-spezifische Verbindungsvalidierung
       if (isReleaseMode) {
         print("🔧 Release-Modus: Führe Verbindungsvalidierung durch...");
@@ -507,6 +552,7 @@ class ApiService {
     _wsHeartbeatTimer?.cancel();
     _wsHeartbeatTimer = null;
     _isConnecting = false;
+    _stopAutoReconnectMonitoring(); // Stoppe Auto-Reconnect-Monitoring beim Cleanup
   }
 
   void _scheduleReconnect() {
@@ -561,6 +607,7 @@ class ApiService {
     _reconnectTimer?.cancel();
     _reconnectTimer = null;
     _reconnectAttempts = 0;
+    _stopAutoReconnectMonitoring(); // Stoppe Auto-Reconnect-Monitoring
     _cleanupWebSocket();
     _isDisconnecting = false;
   }

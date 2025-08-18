@@ -67,15 +67,12 @@ class _NotesOverviewPageState extends State<NotesOverviewPage> {
   }
 
   void _setupWebSocket() {
-    if (_wsListener == null) {
-      _wsListener = (data) {
+    _wsListener ??= (data) {
         print("📥 WebSocket Event in NotesOverview: $data");
         _handleWebSocketEvent(data);
       };
-    }
 
-    if (_wsErrorListener == null) {
-      _wsErrorListener = (error) {
+    _wsErrorListener ??= (error) {
         print("❌ WebSocket Fehler in NotesOverview: $error");
         print("❌ Fehler-Typ: ${error.runtimeType}");
         print("❌ Aktuelle Verbindung: ${apiService.isWebSocketConnected()}");
@@ -88,7 +85,6 @@ class _NotesOverviewPageState extends State<NotesOverviewPage> {
           apiService.forceReconnect();
         }
       };
-    }
 
     // Separate Aufrufe für Listener und Error-Listener
     apiService.addWebSocketListener(_wsListener!);
@@ -118,7 +114,7 @@ class _NotesOverviewPageState extends State<NotesOverviewPage> {
 
     switch (event) {
         case 'note_updated':
-        if (data is Map && data['note'] != null) {
+        if (data['note'] != null) {
           final incoming = Note.fromJson(Map<String, dynamic>.from(data['note']));
           if (!mounted) return;
           setState(() {
@@ -156,7 +152,7 @@ class _NotesOverviewPageState extends State<NotesOverviewPage> {
         break;
 
         case 'note_created':
-        if (data is Map && data['note'] != null) {
+        if (data['note'] != null) {
           final incoming = Note.fromJson(Map<String, dynamic>.from(data['note']));
           if (!mounted) return;
           setState(() {
