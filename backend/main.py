@@ -1,5 +1,5 @@
 # main.py
-from datetime import timedelta
+from datetime import timedelta, datetime
 from fastapi import FastAPI, Depends, HTTPException, WebSocket, status, WebSocketDisconnect, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm
@@ -112,8 +112,12 @@ def get_note(note_id: int, db: Session = Depends(get_db)):
 
 @app.websocket("/ws/notes")
 async def websocket_endpoint(websocket: WebSocket):
+    client_id = f"client_{len(clients)}_{id(websocket)}"
+    print(f"🔌 WebSocket-Verbindung angefragt: {client_id}")
+    
     token = websocket.query_params.get("token")
     if not token:
+        print(f"❌ Kein Token für {client_id}")
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
 
@@ -121,34 +125,57 @@ async def websocket_endpoint(websocket: WebSocket):
     with SessionLocal() as db:
         payload = decode_token(token)
         if payload is None:
+            print(f"❌ Ungültiger Token für {client_id}")
             await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
             return
 
         username = payload.get("sub")
         if not username:
+            print(f"❌ Kein Username im Token für {client_id}")
             await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
             return
 
         user = get_user_by_username(db, username)
         if not user:
+            print(f"❌ User nicht gefunden für {client_id}: {username}")
             await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
             return
 
     # DB geschlossen, Verbindung kann geöffnet werden
     await websocket.accept()
     clients.append(websocket)
+    print(f"✅ WebSocket-Verbindung akzeptiert: {client_id} (User: {username})")
+    print(f"📊 Aktive WebSocket-Clients: {len(clients)}")
 
     try:
         while True:
-            await websocket.receive_text()  # hält Verbindung offen
+            message = await websocket.receive_text()
+            print(f"📥 Nachricht von {client_id}: {message}")
+            
+            # Ping/Pong für Verbindungsüberwachung
+            if message.startswith('{"type":"ping"'):
+                await websocket.send_text('{"type":"pong","timestamp":"' + str(datetime.now()) + '"}')
+                print(f"↪️ Pong gesendet an {client_id}")
+            
     except WebSocketDisconnect:
         clients.remove(websocket)
+        print(f"🔌 WebSocket-Verbindung getrennt: {client_id}")
+        print(f"📊 Verbleibende WebSocket-Clients: {len(clients)}")
+    except Exception as e:
+        print(f"❌ WebSocket-Fehler für {client_id}: {e}")
+        if websocket in clients:
+            clients.remove(websocket)
+        print(f"📊 Verbleibende WebSocket-Clients: {len(clients)}")
 
 
 @app.websocket("/ws/crm")
 async def crm_websocket(websocket: WebSocket):
+    client_id = f"crm_client_{len(crm_clients)}_{id(websocket)}"
+    print(f"🔌 CRM WebSocket-Verbindung angefragt: {client_id}")
+    
     token = websocket.query_params.get("token")
     if not token:
+        print(f"❌ Kein Token für CRM {client_id}")
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
 
@@ -156,48 +183,85 @@ async def crm_websocket(websocket: WebSocket):
     with SessionLocal() as db:
         payload = decode_token(token)
         if payload is None:
+            print(f"❌ Ungültiger Token für CRM {client_id}")
             await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
             return
 
         username = payload.get("sub")
         if not username:
+            print(f"❌ Kein Username im Token für CRM {client_id}")
             await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
             return
 
         user = get_user_by_username(db, username)
         if not user:
+            print(f"❌ User nicht gefunden für CRM {client_id}: {username}")
             await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
             return
 
     # DB ist geschlossen, Verbindung kann weitergehen
     await websocket.accept()
     crm_clients.append(websocket)
+    print(f"✅ CRM WebSocket-Verbindung akzeptiert: {client_id} (User: {username})")
+    print(f"📊 Aktive CRM WebSocket-Clients: {len(crm_clients)}")
 
     try:
         while True:
-            await websocket.receive_text()
+            message = await websocket.receive_text()
+            print(f"📥 CRM Nachricht von {client_id}: {message}")
+            
+            # Ping/Pong für Verbindungsüberwachung
+            if message.startswith('{"type":"ping"'):
+                await websocket.send_text('{"type":"pong","timestamp":"' + str(datetime.now()) + '"}')
+                print(f"↪️ CRM Pong gesendet an {client_id}")
+            
     except WebSocketDisconnect:
         crm_clients.remove(websocket)
+        print(f"🔌 CRM WebSocket-Verbindung getrennt: {client_id}")
+        print(f"📊 Verbleibende CRM WebSocket-Clients: {len(crm_clients)}")
+    except Exception as e:
+        print(f"❌ CRM WebSocket-Fehler für {client_id}: {e}")
+        if websocket in crm_clients:
+            crm_clients.remove(websocket)
+        print(f"📊 Verbleibende CRM WebSocket-Clients: {len(crm_clients)}")
 
 async def broadcast_update(data: dict):
+    print(f"📡 Broadcast an {len(clients)} Clients: {data}")
     to_remove = []
-    for client in clients:
+    for i, client in enumerate(clients):
         try:
             await client.send_json(data)
-        except:
+            print(f"✅ Broadcast erfolgreich an Client {i}")
+        except Exception as e:
+            print(f"❌ Broadcast-Fehler an Client {i}: {e}")
             to_remove.append(client)
+    
+    # Entferne tote Verbindungen
     for c in to_remove:
-        clients.remove(c)
+        if c in clients:
+            clients.remove(c)
+            print(f"🗑️ Tote WebSocket-Verbindung entfernt")
+    
+    print(f"📊 Verbleibende WebSocket-Clients nach Broadcast: {len(clients)}")
 
 async def broadcast_crm_update(data: dict):
+    print(f"📡 CRM Broadcast an {len(crm_clients)} Clients: {data}")
     to_remove = []
-    for client in crm_clients:
+    for i, client in enumerate(crm_clients):
         try:
             await client.send_json(data)
-        except:
+            print(f"✅ CRM Broadcast erfolgreich an Client {i}")
+        except Exception as e:
+            print(f"❌ CRM Broadcast-Fehler an Client {i}: {e}")
             to_remove.append(client)
+    
+    # Entferne tote Verbindungen
     for c in to_remove:
-        crm_clients.remove(c)
+        if c in crm_clients:
+            crm_clients.remove(c)
+            print(f"🗑️ Tote CRM WebSocket-Verbindung entfernt")
+    
+    print(f"📊 Verbleibende CRM WebSocket-Clients nach Broadcast: {len(crm_clients)}")
 
 @app.get("/crm/", response_model=List[CrmEntryOut])
 def get_crm_entries(db: Session = Depends(get_db)):
