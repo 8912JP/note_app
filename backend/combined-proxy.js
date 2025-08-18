@@ -4,22 +4,22 @@ const httpProxy = require('http-proxy');
 const fs = require('fs');
 const path = require('path');
 
-// Proxy-Konfiguration für HTTP-API
+// Proxy-Konfiguration für HTTP-API (lange Timeouts für stabile Verbindungen)
 const apiProxy = httpProxy.createProxyServer({
   target: 'http://localhost:8000', // FastAPI Backend
   changeOrigin: true,
-  timeout: 30000,
-  proxyTimeout: 30000,
+  timeout: 0, // 0 = kein Timeout (Node http-proxy)
+  proxyTimeout: 0,
   xfwd: true, // X-Forwarded-For Header hinzufügen
 });
 
-// Proxy-Konfiguration für WebSocket
+// Proxy-Konfiguration für WebSocket (Timeoute deaktiviert)
 const wsProxy = httpProxy.createProxyServer({
   target: 'ws://localhost:8000', // FastAPI Backend
   ws: true,
   changeOrigin: true,
-  timeout: 30000,
-  proxyTimeout: 30000,
+  timeout: 0, // 0 = kein Timeout
+  proxyTimeout: 0,
   xfwd: true, // X-Forwarded-For Header hinzufügen
 });
 
@@ -36,6 +36,8 @@ apiProxy.on('error', (err, req, res) => {
 wsProxy.on('error', (err, req, socket) => {
   console.error('❌ WebSocket-Proxy-Fehler:', err.message);
   console.error('❌ WebSocket-Proxy-Fehler Details:', err);
+  console.error('❌ WebSocket-Proxy-Fehler URL:', req.url);
+  console.error('❌ WebSocket-Proxy-Fehler Headers:', req.headers);
   if (socket && !socket.destroyed) {
     socket.destroy();
   }
@@ -89,13 +91,16 @@ apiProxy.on('proxyRes', (proxyRes, req, res) => {
 
 wsProxy.on('proxyReqWs', (proxyReq, req, socket) => {
   console.log('🔌 WebSocket-Upgrade für:', req.url);
+  console.log('🔌 WebSocket-Method:', req.method);
   console.log('🔌 WebSocket-Headers:', JSON.stringify(req.headers, null, 2));
+  console.log('🔌 Proxy-Request-Path:', proxyReq.path);
+  console.log('🔌 Proxy-Request-Headers:', JSON.stringify(proxyReq.getHeaders(), null, 2));
   
   // URL-Pfad anpassen für WebSocket
   const originalUrl = req.url;
   if (originalUrl.startsWith('/ws/')) {
     // WebSocket-Pfad bleibt gleich
-    console.log('🔌 WebSocket-Pfad:', originalUrl);
+    console.log('🔌 WebSocket-Pfad bleibt:', originalUrl);
   } else if (originalUrl.startsWith('/api/ws/')) {
     // api/ws/ zu /ws/ konvertieren
     const newPath = originalUrl.replace('/api/ws/', '/ws/');
@@ -106,18 +111,39 @@ wsProxy.on('proxyReqWs', (proxyReq, req, socket) => {
   // WebSocket-spezifische Headers weiterleiten
   if (req.headers['sec-websocket-key']) {
     proxyReq.setHeader('Sec-WebSocket-Key', req.headers['sec-websocket-key']);
+    console.log('🔌 Sec-WebSocket-Key weitergeleitet');
   }
   if (req.headers['sec-websocket-version']) {
     proxyReq.setHeader('Sec-WebSocket-Version', req.headers['sec-websocket-version']);
+    console.log('🔌 Sec-WebSocket-Version weitergeleitet');
   }
   if (req.headers['sec-websocket-protocol']) {
     proxyReq.setHeader('Sec-WebSocket-Protocol', req.headers['sec-websocket-protocol']);
+    console.log('🔌 Sec-WebSocket-Protocol weitergeleitet');
+  }
+  
+  // Authorization Header weiterleiten (für Token)
+  if (req.headers.authorization) {
+    proxyReq.setHeader('Authorization', req.headers.authorization);
+    console.log('🔌 Authorization Header weitergeleitet');
+  }
+  
+  // Origin Header weiterleiten
+  if (req.headers.origin) {
+    proxyReq.setHeader('Origin', req.headers.origin);
+    console.log('🔌 Origin Header weitergeleitet');
   }
 });
 
 // WebSocket-Verbindungs-Events
 wsProxy.on('open', (proxySocket) => {
   console.log('🔌 WebSocket-Verbindung zu Backend geöffnet');
+  console.log('🔌 Proxy-Socket Details:', {
+    remoteAddress: proxySocket.remoteAddress,
+    remotePort: proxySocket.remotePort,
+    localAddress: proxySocket.localAddress,
+    localPort: proxySocket.localPort
+  });
 });
 
 wsProxy.on('close', (proxySocket) => {
@@ -165,6 +191,10 @@ const httpServer = http.createServer((req, res) => {
   }
 });
 
+// Deaktiviere Standard-Timeouts auf HTTP-Server-Ebene
+httpServer.timeout = 0; // Kein Inaktivitäts-Timeout
+httpServer.keepAliveTimeout = 120000; // 120s für Keep-Alive
+
 // HTTPS-Server für alle Requests (falls SSL verfügbar)
 let httpsServer = null;
 if (sslOptions) {
@@ -186,6 +216,9 @@ if (sslOptions) {
       res.end('Nur API- und WebSocket-Pfade erlaubt');
     }
   });
+  // Deaktiviere Standard-Timeouts auf HTTPS-Server-Ebene
+  httpsServer.timeout = 0;
+  httpsServer.keepAliveTimeout = 120000;
 }
 
 // WebSocket-Upgrade-Handler für HTTP

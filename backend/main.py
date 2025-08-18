@@ -1,5 +1,6 @@
 # main.py
 from datetime import timedelta, datetime
+import os
 from fastapi import FastAPI, Depends, HTTPException, WebSocket, status, WebSocketDisconnect, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm
@@ -71,25 +72,63 @@ def read_notes(db: Session = Depends(get_db), current_user: User = Depends(get_c
 @app.post("/notes/", response_model=schemas.NoteOut, status_code=201)
 @app.post("/api/notes/", response_model=schemas.NoteOut, status_code=201)
 async def create_note(note: schemas.NoteCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    print(f"📝 Erstelle neue Note für User: {current_user.username}")
     db_note = crud.create_note(db, note, user_id=current_user.id)
-    await broadcast_update({"event": "note_created", "id": db_note.id})
+    note_data = schemas.NoteOut.from_orm(db_note)
+    print(f"📡 Sende Broadcast für neue Note: {db_note.id}")
+    
+    # Konvertiere datetime zu String für JSON-Serialisierung
+    note_dict = note_data.dict()
+    if 'created_at' in note_dict and note_dict['created_at'] is not None:
+        note_dict['created_at'] = note_dict['created_at'].isoformat()
+    
+    await broadcast_update({
+        "event": "note_created", 
+        "id": db_note.id,
+        "note": note_dict,
+        "timestamp": str(datetime.now())
+    })
     return db_note
 
 @app.put("/notes/{note_id}", response_model=schemas.NoteOut)
 @app.put("/api/notes/{note_id}", response_model=schemas.NoteOut)
 async def update_note(note_id: int, note: schemas.NoteUpdate, db: Session = Depends(get_db)):
+    print(f"📝 Aktualisiere Note: {note_id}")
     db_note = crud.update_note(db, note_id, note)
     if not db_note:
         raise HTTPException(status_code=404, detail="Notiz nicht gefunden")
-    await broadcast_update({"event": "note_updated", "id": db_note.id})
+    note_data = schemas.NoteOut.from_orm(db_note)
+    print(f"📡 Sende Broadcast für aktualisierte Note: {db_note.id}")
+    
+    # Kurze Verzögerung, damit WebSocket-Clients Zeit haben, sich zu verbinden
+    import asyncio
+    await asyncio.sleep(0.5)
+    
+    # Konvertiere datetime zu String für JSON-Serialisierung
+    note_dict = note_data.dict()
+    if 'created_at' in note_dict and note_dict['created_at'] is not None:
+        note_dict['created_at'] = note_dict['created_at'].isoformat()
+    
+    await broadcast_update({
+        "event": "note_updated", 
+        "id": db_note.id,
+        "note": note_dict,
+        "timestamp": str(datetime.now())
+    })
     return db_note
 
 @app.delete("/notes/{note_id}", status_code=204)
 @app.delete("/api/notes/{note_id}", status_code=204)
 async def delete_note(note_id: int, db: Session = Depends(get_db)):
+    print(f"🗑️ Lösche Note: {note_id}")
     if not crud.delete_note(db, note_id):
         raise HTTPException(status_code=404, detail="Notiz nicht gefunden")
-    await broadcast_update({"event": "note_deleted", "id": note_id})
+    print(f"📡 Sende Broadcast für gelöschte Note: {note_id}")
+    await broadcast_update({
+        "event": "note_deleted", 
+        "id": note_id,
+        "timestamp": str(datetime.now())
+    })
 
 @app.get("/notes/grouped", response_model=List[List[schemas.NoteOut]])
 @app.get("/api/notes/grouped", response_model=List[List[schemas.NoteOut]])
@@ -114,6 +153,7 @@ def get_note(note_id: int, db: Session = Depends(get_db)):
 async def websocket_endpoint(websocket: WebSocket):
     client_id = f"client_{len(clients)}_{id(websocket)}"
     print(f"🔌 WebSocket-Verbindung angefragt: {client_id}")
+    print(f"📊 Aktuelle Clients vor Verbindung: {len(clients)}")
     
     token = websocket.query_params.get("token")
     if not token:
@@ -145,7 +185,8 @@ async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
     clients.append(websocket)
     print(f"✅ WebSocket-Verbindung akzeptiert: {client_id} (User: {username})")
-    print(f"📊 Aktive WebSocket-Clients: {len(clients)}")
+    print(f"📊 Aktive WebSocket-Clients nach Hinzufügung: {len(clients)}")
+    print(f"📋 Client-IDs: {[f'client_{i}_{id(c)}' for i, c in enumerate(clients)]}")
 
     try:
         while True:
@@ -158,14 +199,22 @@ async def websocket_endpoint(websocket: WebSocket):
                 print(f"↪️ Pong gesendet an {client_id}")
             
     except WebSocketDisconnect:
-        clients.remove(websocket)
-        print(f"🔌 WebSocket-Verbindung getrennt: {client_id}")
+        # Safeguard: Verbindung nur entfernen, wenn sie noch registriert ist
+        if websocket in clients:
+            clients.remove(websocket)
+            print(f"🔌 WebSocket-Verbindung getrennt: {client_id}")
+        else:
+            print(f"⚠️ WebSocket bereits entfernt (Disconnect): {client_id}")
         print(f"📊 Verbleibende WebSocket-Clients: {len(clients)}")
+        print(f"📋 Verbleibende Client-IDs: {[f'client_{i}_{id(c)}' for i, c in enumerate(clients)]}")
     except Exception as e:
         print(f"❌ WebSocket-Fehler für {client_id}: {e}")
         if websocket in clients:
             clients.remove(websocket)
-        print(f"📊 Verbleibende WebSocket-Clients: {len(clients)}")
+        else:
+            print(f"⚠️ WebSocket bereits entfernt (Fehlerpfad): {client_id}")
+        print(f"📊 Verbleibende WebSocket-Clients nach Fehler: {len(clients)}")
+        print(f"📋 Verbleibende Client-IDs: {[f'client_{i}_{id(c)}' for i, c in enumerate(clients)]}")
 
 
 @app.websocket("/ws/crm")
@@ -227,13 +276,21 @@ async def crm_websocket(websocket: WebSocket):
 
 async def broadcast_update(data: dict):
     print(f"📡 Broadcast an {len(clients)} Clients: {data}")
+    print(f"📋 Client-IDs vor Broadcast: {[f'client_{i}_{id(c)}' for i, c in enumerate(clients)]}")
+    
+    if len(clients) == 0:
+        print("⚠️ Keine WebSocket-Clients verbunden - Broadcast wird nicht gesendet")
+        return
+    
     to_remove = []
     for i, client in enumerate(clients):
         try:
+            print(f"📤 Sende Broadcast an Client {i} (ID: client_{i}_{id(client)})")
             await client.send_json(data)
             print(f"✅ Broadcast erfolgreich an Client {i}")
         except Exception as e:
             print(f"❌ Broadcast-Fehler an Client {i}: {e}")
+            print(f"❌ Fehler-Typ: {type(e).__name__}")
             to_remove.append(client)
     
     # Entferne tote Verbindungen
@@ -243,6 +300,7 @@ async def broadcast_update(data: dict):
             print(f"🗑️ Tote WebSocket-Verbindung entfernt")
     
     print(f"📊 Verbleibende WebSocket-Clients nach Broadcast: {len(clients)}")
+    print(f"📋 Verbleibende Client-IDs: {[f'client_{i}_{id(c)}' for i, c in enumerate(clients)]}")
 
 async def broadcast_crm_update(data: dict):
     print(f"📡 CRM Broadcast an {len(crm_clients)} Clients: {data}")
@@ -300,3 +358,83 @@ def public_status():
 @app.get("/")
 def root():
     return {"message": "FastAPI Server is running", "endpoints": ["/status", "/health", "/public/status"]}
+
+@app.get("/debug/websocket")
+def debug_websocket():
+    """Debug-Endpoint für WebSocket-Status"""
+    return {
+        "active_clients": len(clients),
+        "active_crm_clients": len(crm_clients),
+        "client_ids": [f"client_{i}_{id(client)}" for i, client in enumerate(clients)],
+        "crm_client_ids": [f"crm_client_{i}_{id(client)}" for i, client in enumerate(crm_clients)],
+        "process_id": os.getpid(),
+    }
+
+@app.get("/api/debug/websocket")
+def debug_websocket_api():
+    """Debug-Endpoint für WebSocket-Status (API-Route)"""
+    return {
+        "active_clients": len(clients),
+        "active_crm_clients": len(crm_clients),
+        "client_ids": [f"client_{i}_{id(client)}" for i, client in enumerate(clients)],
+        "crm_client_ids": [f"crm_client_{i}_{id(client)}" for i, client in enumerate(crm_clients)],
+        "process_id": os.getpid(),
+    }
+
+@app.post("/debug/broadcast")
+async def debug_broadcast():
+    """Debug-Endpoint für manuelle Broadcast-Tests"""
+    test_data = {
+        "event": "test_broadcast",
+        "id": 999,
+        "message": "Test-Broadcast vom Server",
+        "timestamp": str(datetime.now())
+    }
+    print(f"🧪 Manueller Broadcast-Test: {test_data}")
+    await broadcast_update(test_data)
+    return {"message": "Test-Broadcast gesendet", "data": test_data}
+
+@app.post("/api/debug/broadcast")
+async def debug_broadcast_api():
+    """Debug-Endpoint für manuelle Broadcast-Tests (API-Route)"""
+    test_data = {
+        "event": "test_broadcast",
+        "id": 999,
+        "message": "Test-Broadcast vom Server",
+        "timestamp": str(datetime.now())
+    }
+    print(f"🧪 Manueller Broadcast-Test (API): {test_data}")
+    print(f"📊 Aktuelle Clients vor Test-Broadcast: {len(clients)}")
+    await broadcast_update(test_data)
+    return {"message": "Test-Broadcast gesendet", "data": test_data, "clients_count": len(clients)}
+
+@app.post("/api/debug/test-websocket")
+async def test_websocket_connection():
+    """Test-Endpoint für direkte WebSocket-Tests"""
+    print(f"🧪 Teste WebSocket-Verbindungen direkt...")
+    print(f"📊 Aktuelle Clients: {len(clients)}")
+    
+    # Teste direkte Nachrichten an alle Clients
+    test_message = {
+        "event": "direct_test",
+        "id": 888,
+        "message": "Direkter WebSocket-Test",
+        "timestamp": str(datetime.now())
+    }
+    
+    success_count = 0
+    for i, client in enumerate(clients):
+        try:
+            print(f"📤 Sende direkte Test-Nachricht an Client {i}")
+            await client.send_json(test_message)
+            print(f"✅ Direkte Nachricht erfolgreich an Client {i}")
+            success_count += 1
+        except Exception as e:
+            print(f"❌ Direkte Nachricht fehlgeschlagen an Client {i}: {e}")
+    
+    return {
+        "message": "Direkter WebSocket-Test abgeschlossen",
+        "total_clients": len(clients),
+        "successful_sends": success_count,
+        "test_message": test_message
+    }

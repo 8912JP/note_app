@@ -31,34 +31,30 @@ class _GroupedNotesPageState extends State<GroupedNotesPage> {
   }
 
   void _setupWebSocket() {
-    apiService.addWebSocketListener(
-      _handleWebSocketEvent,
-      (error) {
-        debugPrint('❌ WebSocket Fehler in GroupedNotes: $error');
-        print('❌ WebSocket Fehler Details: $error');
-        print('❌ Fehler-Typ: ${error.runtimeType}');
-        
-        // Zeige WebSocket-Status
-        print('🔌 WebSocket Status: ${apiService.isWebSocketConnected() ? "Verbunden" : "Nicht verbunden"}');
-        
-        // Versuche manuellen Reconnect bei kritischen Fehlern
-        if (error.toString().contains('Connection refused') || 
-            error.toString().contains('SocketException') ||
-            error.toString().contains('timeout')) {
-          print('🔄 Versuche manuellen Reconnect in GroupedNotes...');
-          // Kurze Verzögerung, dann neu verbinden
-          Future.delayed(Duration(seconds: 2), () {
-            if (mounted) {
-              apiService.removeWebSocketListener(_handleWebSocketEvent);
-              apiService.addWebSocketListener(
-                _handleWebSocketEvent,
-                (error) => debugPrint('❌ WebSocket Fehler in GroupedNotes: $error'),
-              );
-            }
-          });
-        }
-      },
-    );
+    // Separate Aufrufe für Listener und Error-Listener
+    apiService.addWebSocketListener(_handleWebSocketEvent);
+    apiService.addWebSocketErrorListener((error) {
+      debugPrint('❌ WebSocket Fehler in GroupedNotes: $error');
+      print('❌ WebSocket Fehler Details: $error');
+      print('❌ Fehler-Typ: ${error.runtimeType}');
+      
+      // Zeige WebSocket-Status
+      print('🔌 WebSocket Status: ${apiService.isWebSocketConnected() ? "Verbunden" : "Nicht verbunden"}');
+      
+      // Versuche manuellen Reconnect bei kritischen Fehlern
+      if (error.toString().contains('Connection refused') || 
+          error.toString().contains('SocketException') ||
+          error.toString().contains('timeout')) {
+        print('🔄 Versuche manuellen Reconnect in GroupedNotes...');
+        // Kurze Verzögerung, dann neu verbinden
+        Future.delayed(Duration(seconds: 2), () {
+          if (mounted) {
+            apiService.removeWebSocketListener(_handleWebSocketEvent);
+            apiService.addWebSocketListener(_handleWebSocketEvent);
+          }
+        });
+      }
+    });
   }
 
   Future<void> _loadNotes() async {
@@ -120,22 +116,44 @@ class _GroupedNotesPageState extends State<GroupedNotesPage> {
   void _handleWebSocketEvent(Map<String, dynamic> data) async {
     if (!mounted) return;
 
+    // Prüfe ob es eine Pong-Nachricht ist (Heartbeat-Antwort)
+    if (data['type'] == 'pong') {
+      print("↪️ Pong-Nachricht empfangen in GroupedNotes: ${data['timestamp']}");
+      return; // Ignoriere Pong-Nachrichten
+    }
+    
+    // Prüfe ob es ein gültiges Event ist
+    if (data['event'] == null) {
+      print("⚠️ Ungültige WebSocket-Nachricht in GroupedNotes: $data");
+      return;
+    }
+
     final id = data['id']?.toString();
+    print("📥 Verarbeite WebSocket-Event in GroupedNotes: ${data['event']} für ID: $id");
+    
     switch (data['event']) {
       case 'note_updated':
       case 'note_created':
         if (data['note'] != null) {
           final incoming = Note.fromJson(Map<String, dynamic>.from(data['note']));
           _updateOrInsertNote(incoming);
+          print("✅ Note in GroupedNotes aktualisiert: ${incoming.id}");
           break;
         }
         if (id == null) return;
         final updated = await apiService.fetchNoteById(id);
-        if (updated != null) _updateOrInsertNote(updated);
+        if (updated != null) {
+          _updateOrInsertNote(updated);
+          print("✅ Note in GroupedNotes nachgeladen: ${updated.id}");
+        }
         break;
       case 'note_deleted':
         if (id == null) return;
         _removeNoteById(id);
+        print("🗑️ Note in GroupedNotes gelöscht: $id");
+        break;
+      default:
+        print("⚠️ Unbekanntes WebSocket-Event in GroupedNotes: ${data['event']}");
         break;
     }
   }

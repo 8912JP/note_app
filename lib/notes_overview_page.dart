@@ -59,47 +59,62 @@ class _NotesOverviewPageState extends State<NotesOverviewPage> {
       if (!isConnected && _wsListener != null) {
         print('⚠️ WebSocket nicht verbunden, aber Listener vorhanden. Versuche Reconnect...');
         apiService.removeWebSocketListener(_wsListener!);
-        apiService.addWebSocketListener(_wsListener!, _wsErrorListener);
+        apiService.removeWebSocketErrorListener(_wsErrorListener!);
+        apiService.addWebSocketListener(_wsListener!);
+        apiService.addWebSocketErrorListener(_wsErrorListener!);
       }
     });
   }
 
   void _setupWebSocket() {
-    _wsListener = (data) {
-      print("📥 WebSocket Event in NotesOverview: $data");
-      unawaited(_handleWebSocketEvent(data));
-    };
-    _wsErrorListener = (error) {
-      debugPrint('❌ WebSocket Fehler in NotesOverview: $error');
-      print('❌ WebSocket Fehler Details: $error');
-      print('❌ Fehler-Typ: ${error.runtimeType}');
-      
-      // Zeige WebSocket-Status
-      print('🔌 WebSocket Status: ${apiService.isWebSocketConnected() ? "Verbunden" : "Nicht verbunden"}');
-      
-      // Versuche manuellen Reconnect bei kritischen Fehlern
-      if (error.toString().contains('Connection refused') || 
-          error.toString().contains('SocketException') ||
-          error.toString().contains('timeout')) {
-        print('🔄 Versuche manuellen Reconnect...');
-        // Kurze Verzögerung, dann neu verbinden
-        Future.delayed(Duration(seconds: 2), () {
-          if (mounted) {
-            apiService.removeWebSocketListener(_wsListener!);
-            apiService.addWebSocketListener(_wsListener!, _wsErrorListener);
-          }
-        });
-      }
-    };
-    apiService.addWebSocketListener(_wsListener!, _wsErrorListener);
+    if (_wsListener == null) {
+      _wsListener = (data) {
+        print("📥 WebSocket Event in NotesOverview: $data");
+        _handleWebSocketEvent(data);
+      };
+    }
+
+    if (_wsErrorListener == null) {
+      _wsErrorListener = (error) {
+        print("❌ WebSocket Fehler in NotesOverview: $error");
+        print("❌ Fehler-Typ: ${error.runtimeType}");
+        print("❌ Aktuelle Verbindung: ${apiService.isWebSocketConnected()}");
+        
+        // Versuche manuellen Reconnect bei kritischen Fehlern
+        if (error.toString().contains('Connection refused') ||
+            error.toString().contains('SocketException') ||
+            error.toString().contains('timeout')) {
+          print("🔄 Versuche manuellen Reconnect...");
+          apiService.forceReconnect();
+        }
+      };
+    }
+
+    // Separate Aufrufe für Listener und Error-Listener
+    apiService.addWebSocketListener(_wsListener!);
+    apiService.addWebSocketErrorListener(_wsErrorListener!);
   }
 
   Future<void> _handleWebSocketEvent(dynamic data) async {
   try {
+    // Prüfe ob es eine Pong-Nachricht ist (Heartbeat-Antwort)
+    if (data is Map && data['type'] == 'pong') {
+      print("↪️ Pong-Nachricht empfangen: ${data['timestamp']}");
+      return; // Ignoriere Pong-Nachrichten
+    }
+    
+    // Prüfe ob es ein gültiges Event ist
+    if (data is! Map || data['event'] == null) {
+      print("⚠️ Ungültige WebSocket-Nachricht: $data");
+      return;
+    }
+    
     final String event = data['event'];
     final String? noteId = data['id']?.toString();
 
     if (!mounted || noteId == null) return;
+
+    print("📥 Verarbeite WebSocket-Event: $event für Note ID: $noteId");
 
     switch (event) {
         case 'note_updated':
@@ -114,6 +129,7 @@ class _NotesOverviewPageState extends State<NotesOverviewPage> {
               allNotes.add(incoming);
             }
           });
+          print("✅ Note aktualisiert: ${incoming.id}");
         } else {
           // Fallback: Note nachladen, falls Event ohne payload kommt
           final fetched = await apiService.fetchNoteById(noteId);
@@ -126,6 +142,7 @@ class _NotesOverviewPageState extends State<NotesOverviewPage> {
                 allNotes.add(fetched);
               }
             });
+            print("✅ Note nachgeladen und aktualisiert: ${fetched.id}");
           }
         }
         break;
@@ -135,6 +152,7 @@ class _NotesOverviewPageState extends State<NotesOverviewPage> {
         setState(() {
           allNotes.removeWhere((n) => n.id.toString() == noteId);
         });
+        print("🗑️ Note gelöscht: $noteId");
         break;
 
         case 'note_created':
@@ -146,6 +164,7 @@ class _NotesOverviewPageState extends State<NotesOverviewPage> {
               allNotes.add(incoming);
             }
           });
+          print("✅ Neue Note erstellt: ${incoming.id}");
         } else {
           // Fallback: Note nachladen
           final fetched = await apiService.fetchNoteById(noteId);
@@ -155,12 +174,18 @@ class _NotesOverviewPageState extends State<NotesOverviewPage> {
                 allNotes.add(fetched);
               }
             });
+            print("✅ Neue Note nachgeladen: ${fetched.id}");
           }
         }
+        break;
+        
+      default:
+        print("⚠️ Unbekanntes WebSocket-Event: $event");
         break;
     }
   } catch (e, stack) {
     debugPrint('❌ Fehler im WebSocket-Eventhandler: $e');
+    debugPrint('❌ Daten die den Fehler verursacht haben: $data');
     debugPrint('$stack'); // Zeigt dir, wo der Fehler auftrat
   }
 }
@@ -237,11 +262,13 @@ class _NotesOverviewPageState extends State<NotesOverviewPage> {
   }
 
   void _toggleDone(Note note) async {
-    if (note.id == null) return;
-    if (_updatingNoteIds.contains(note.id)) return; // schon in Arbeit
+    print("🔄 _toggleDone aufgerufen für Note ID: ${note.id}");
+    print("🔄 Aktueller isDone Status: ${note.isDone}");
+    
     _updatingNoteIds.add(note.id!);
-    setState(() {});
-    final updatedNote = Note(
+    if (mounted) setState(() {});
+    
+    final updated = note.copyWith(
       id: note.id,
       firstName: note.firstName,
       lastName: note.lastName,
@@ -255,14 +282,19 @@ class _NotesOverviewPageState extends State<NotesOverviewPage> {
       isDone: !note.isDone,
       createdAt: note.createdAt,
     );
+    
+    print("🔄 Neuer isDone Status: ${updated.isDone}");
+    
     try {
-      final result = await apiService.updateNote(updatedNote);
+      print("🔄 Rufe apiService.updateNote auf...");
+      final result = await apiService.updateNote(updated);
+      print("🔄 updateNote erfolgreich abgeschlossen");
       setState(() {
         final index = allNotes.indexWhere((n) => n.id == result.id);
         if (index != -1) allNotes[index] = result;
       });
     } catch (e) {
-      print('Fehler beim Aktualisieren der Notiz: $e');
+      print('❌ Fehler beim Aktualisieren der Notiz: $e');
     }
     _updatingNoteIds.remove(note.id);
     if (mounted) setState(() {});
@@ -426,6 +458,28 @@ class _NotesOverviewPageState extends State<NotesOverviewPage> {
     );
   }
 
+  void _showSnackBar(String message, {bool isSuccess = true}) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(message),
+          backgroundColor: isSuccess ? Colors.green : Colors.red,
+        ),
+      );
+    }
+  }
+
+  void _showSnackBarWithColor(String message, Color color) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(message),
+          backgroundColor: color,
+        ),
+      );
+    }
+  }
+
   void _showWebSocketDebugInfo() {
     final isConnected = apiService.isWebSocketConnected();
     final listenerCount = apiService.getWebSocketListenerCount();
@@ -450,6 +504,77 @@ class _NotesOverviewPageState extends State<NotesOverviewPage> {
           ),
         ),
         actions: [
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              final success = await apiService.testWebSocketConnection();
+              _showSnackBar(
+                success ? 'WebSocket-Test erfolgreich!' : 'WebSocket-Test fehlgeschlagen',
+                isSuccess: success,
+              );
+            },
+            child: const Text('WebSocket testen'),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              final status = await apiService.getWebSocketStatus();
+              if (status != null) {
+                _showSnackBarWithColor(
+                  'Server: ${status['active_clients']} Clients',
+                  Colors.blue,
+                );
+              } else {
+                _showSnackBar('Status-Abfrage fehlgeschlagen', isSuccess: false);
+              }
+            },
+            child: const Text('Server-Status'),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              final success = await apiService.testServerBroadcast();
+              _showSnackBarWithColor(
+                success ? 'Test-Broadcast gesendet!' : 'Test-Broadcast fehlgeschlagen',
+                success ? Colors.orange : Colors.red,
+              );
+            },
+            child: const Text('Test-Broadcast'),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              final result = await apiService.testDirectWebSocket();
+              if (result != null) {
+                _showSnackBarWithColor(
+                  'Direkter Test: ${result['successful_sends']}/${result['total_clients']} erfolgreich',
+                  result['successful_sends'] > 0 ? Colors.green : Colors.red,
+                );
+              } else {
+                _showSnackBar('Direkter Test fehlgeschlagen', isSuccess: false);
+              }
+            },
+            child: const Text('Direkter Test'),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              final success = await apiService.testBackendConnection();
+              _showSnackBar(
+                success ? 'Backend-Verbindungstest abgeschlossen' : 'Backend-Verbindungstest fehlgeschlagen',
+                isSuccess: success,
+              );
+            },
+            child: const Text('Backend-Test'),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              await apiService.testNetworkConfiguration();
+              _showSnackBar('Netzwerk-Test abgeschlossen - siehe Konsole', isSuccess: true);
+            },
+            child: const Text('Netzwerk-Test'),
+          ),
           TextButton(
             onPressed: () {
               apiService.forceReconnect();

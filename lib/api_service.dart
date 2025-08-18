@@ -98,22 +98,35 @@ class ApiService {
   }
 
   Future<Note> updateNote(Note note) async {
+    print("🔄 updateNote aufgerufen für Note ID: ${note.id}");
+    print("🔄 Note isDone: ${note.isDone}");
+    print("🔄 AccessToken vorhanden: ${_accessToken != null}");
+    print("🔄 AccessToken Länge: ${_accessToken?.length ?? 0}");
+    
     try {
       final response = await http.put(
         Uri.parse('$baseUrl/api/notes/${note.id}'),
         headers: _authHeaders,
         body: json.encode(note.toJson()),
       );
+      print("🔄 HTTP Response Status: ${response.statusCode}");
+      print("🔄 HTTP Response Body: ${response.body}");
+      
       if (response.statusCode == 200) {
         return Note.fromJson(json.decode(response.body));
       } else if (response.statusCode == 401) {
+        print("❌ 401 Unauthorized - Token möglicherweise abgelaufen");
         throw Exception('Unauthorized: Bitte erneut einloggen.');
       } else if (response.statusCode == 404) {
+        print("❌ 404 Not Found - Note nicht gefunden");
         throw Exception('Server nicht verfügbar (404). Bitte starten Sie den Backend-Server.');
       } else {
+        print("❌ HTTP ${response.statusCode} - Unbekannter Fehler");
         throw Exception('Fehler beim Aktualisieren (${response.statusCode})');
       }
     } catch (e) {
+      print("❌ Exception in updateNote: $e");
+      print("❌ Exception Typ: ${e.runtimeType}");
       if (e.toString().contains('SocketException') || e.toString().contains('Connection refused')) {
         throw Exception('Server nicht erreichbar. Bitte starten Sie den Backend-Server mit: cd backend && uvicorn main:app --reload --host 0.0.0.0 --port 8000');
       }
@@ -163,24 +176,83 @@ class ApiService {
   static const int _maxReconnectAttempts = 5;
   Timer? _reconnectTimer;
   
-  void addWebSocketListener(void Function(Map<String, dynamic> data) listener, void Function(dynamic error)? errorListener) {
-    _webSocketListeners.add(listener);
-    if (errorListener != null) {
-      _webSocketErrorListeners.add(errorListener);
-    }
+  void addWebSocketListener(void Function(Map<String, dynamic> data) listener) {
+    final isReleaseMode = const bool.fromEnvironment('dart.vm.product');
     
-    // Wenn noch keine Verbindung existiert, eine aufbauen
-    if (_channel == null && !_isConnecting) {
-      _connectToWebSocket();
+    if (!_webSocketListeners.contains(listener)) {
+      _webSocketListeners.add(listener);
+      print("📡 WebSocket-Listener hinzugefügt. Gesamt: ${_webSocketListeners.length}");
+      
+      // Release-spezifische Listener-Validierung
+      if (isReleaseMode) {
+        print("🔧 Release-Modus: Listener-Validierung aktiviert");
+        // Prüfe nach kurzer Zeit, ob der Listener noch aktiv ist
+        Timer(const Duration(seconds: 5), () {
+          if (_webSocketListeners.contains(listener)) {
+            print("🔧 Release-Modus: Listener ist noch aktiv");
+          } else {
+            print("⚠️ Release-Modus: Listener wurde entfernt");
+          }
+        });
+      }
+      
+      // Automatische WebSocket-Verbindung, falls noch nicht verbunden
+      if (_channel == null && _accessToken != null) {
+        print("🔌 Automatische WebSocket-Verbindung aufgrund neuer Listener");
+        _connectToWebSocket();
+      }
+    } else {
+      print("⚠️ WebSocket-Listener bereits vorhanden");
     }
   }
-  
+
   void removeWebSocketListener(void Function(Map<String, dynamic> data) listener) {
-    _webSocketListeners.remove(listener);
+    final isReleaseMode = const bool.fromEnvironment('dart.vm.product');
     
-    // Wenn keine Listener mehr vorhanden sind, Verbindung schließen
-    if (_webSocketListeners.isEmpty) {
-      disconnectWebSocket();
+    if (_webSocketListeners.remove(listener)) {
+      print("📡 WebSocket-Listener entfernt. Verbleibend: ${_webSocketListeners.length}");
+      
+      // Release-spezifische Verbindungsverwaltung
+      if (isReleaseMode && _webSocketListeners.isEmpty) {
+        print("🔧 Release-Modus: Keine Listener mehr - trenne Verbindung in 10 Sekunden");
+        // Im Release-Modus warten wir länger, bevor wir die Verbindung trennen
+        Timer(const Duration(seconds: 10), () {
+          if (_webSocketListeners.isEmpty) {
+            print("🔧 Release-Modus: Trenne Verbindung - keine Listener mehr");
+            disconnectWebSocket();
+          }
+        });
+      } else if (!isReleaseMode && _webSocketListeners.isEmpty) {
+        // Debug-Modus: Sofortige Trennung
+        print("🔧 Debug-Modus: Trenne Verbindung sofort - keine Listener mehr");
+        disconnectWebSocket();
+      }
+    } else {
+      print("⚠️ WebSocket-Listener nicht gefunden");
+    }
+  }
+
+  void addWebSocketErrorListener(void Function(dynamic error) errorListener) {
+    final isReleaseMode = const bool.fromEnvironment('dart.vm.product');
+    
+    if (!_webSocketErrorListeners.contains(errorListener)) {
+      _webSocketErrorListeners.add(errorListener);
+      print("📡 WebSocket-Error-Listener hinzugefügt. Gesamt: ${_webSocketErrorListeners.length}");
+      
+      // Release-spezifische Error-Listener-Validierung
+      if (isReleaseMode) {
+        print("🔧 Release-Modus: Error-Listener-Validierung aktiviert");
+      }
+    } else {
+      print("⚠️ WebSocket-Error-Listener bereits vorhanden");
+    }
+  }
+
+  void removeWebSocketErrorListener(void Function(dynamic error) errorListener) {
+    if (_webSocketErrorListeners.remove(errorListener)) {
+      print("📡 WebSocket-Error-Listener entfernt. Verbleibend: ${_webSocketErrorListeners.length}");
+    } else {
+      print("⚠️ WebSocket-Error-Listener nicht gefunden");
     }
   }
   
@@ -202,13 +274,15 @@ class ApiService {
     print("🔌 WebSocket wird über Node.js-Proxy aktiviert (Versuch ${_reconnectAttempts + 1})");
 
     try {
-      // WebSocket über Node.js-Proxy
+      // Intelligente WebSocket-URL-Auswahl
       String wsUrl;
+      final isReleaseMode = const bool.fromEnvironment('dart.vm.product');
       
-      // WebSocket-URL-Konstruktion mit Fallback-Optionen
       if (baseUrl.startsWith('https')) {
-        // Primäre WebSocket-URL
+        // Verwende immer die gleiche URL für Debug und Release
+        // Der Proxy sollte in beiden Modi funktionieren
         wsUrl = 'wss://iqmedix.cloud/ws/notes?token=$_accessToken';
+        print("🔌 Verwende WebSocket-URL: $wsUrl");
       } else {
         wsUrl = 'ws://iqmedix.cloud/ws/notes?token=$_accessToken';
       }
@@ -222,6 +296,8 @@ class ApiService {
       print("  - WebSocket URL: $wsUrl");
       print("  - WebSocket Listeners: ${_webSocketListeners.length}");
       print("  - Reconnect Versuche: $_reconnectAttempts");
+      print("  - Build-Modus: ${isReleaseMode ? 'Release' : 'Debug'}");
+      print("  - Platform: ${const String.fromEnvironment('FLUTTER_TARGET', defaultValue: 'unknown')}");
       
       print("🔌 Verbinde WebSocket: $wsUrl");
       
@@ -230,9 +306,20 @@ class ApiService {
       print("🔌 Parsed URI: $uri");
       _channel = WebSocketChannel.connect(uri);
 
-      // Starte Heartbeat, um die Verbindung aktiv zu halten (Proxy-Idle-Timeout vermeiden)
+      // Release-spezifische Heartbeat-Konfiguration
       _wsHeartbeatTimer?.cancel();
-      _wsHeartbeatTimer = Timer.periodic(const Duration(seconds: 10), (_) {
+      int heartbeatInterval;
+      if (isReleaseMode) {
+        // Release-Modus: Häufigere Heartbeats für stabilere Verbindung
+        heartbeatInterval = 8; // 8 Sekunden statt 10
+        print("🔧 Release-Modus: Verwende häufigeren Heartbeat (8s)");
+      } else {
+        // Debug-Modus: Normale Heartbeats
+        heartbeatInterval = 10;
+        print("🔧 Debug-Modus: Verwende normalen Heartbeat (10s)");
+      }
+      
+      _wsHeartbeatTimer = Timer.periodic(Duration(seconds: heartbeatInterval), (_) {
         try {
           if (_channel != null && !_isDisconnecting) {
             _channel?.sink.add('{"type":"ping","timestamp":"${DateTime.now().toIso8601String()}"}');
@@ -245,18 +332,27 @@ class ApiService {
         }
       });
 
+      // Token-Validierung alle 5 Minuten
+      Timer.periodic(Duration(minutes: 5), (_) {
+        _validateAndRefreshToken();
+      });
+
+      // Verbesserte Stream-Behandlung mit robusterer Fehlerbehandlung
       _channel!.stream.listen(
         (message) {
           try {
             final data = json.decode(message);
             print("📥 WebSocket Nachricht empfangen: $data");
             
-            // Benachrichtige alle Listener
-            for (var listener in _webSocketListeners) {
+            // Benachrichtige alle Listener mit robusterer Fehlerbehandlung
+            final listenersToNotify = List<void Function(Map<String, dynamic> data)>.from(_webSocketListeners);
+            for (var listener in listenersToNotify) {
               try {
                 listener(data);
               } catch (e) {
                 print("❌ Fehler in WebSocket-Listener: $e");
+                // Entferne fehlerhafte Listener
+                _webSocketListeners.remove(listener);
               }
             }
           } catch (e) {
@@ -284,13 +380,16 @@ class ApiService {
             print("⚠️ Timeout-Fehler. Verbindung zu langsam.");
           }
           
-          // Benachrichtige alle Error-Listener
-          for (var errorListener in _webSocketErrorListeners) {
+          // Benachrichtige alle Error-Listener mit robusterer Fehlerbehandlung
+          final errorListenersToNotify = List<void Function(dynamic error)?>.from(_webSocketErrorListeners);
+          for (var errorListener in errorListenersToNotify) {
             if (errorListener != null) {
               try {
                 errorListener(error);
               } catch (e) {
                 print("❌ Fehler in Error-Listener: $e");
+                // Entferne fehlerhafte Error-Listener
+                _webSocketErrorListeners.remove(errorListener);
               }
             }
           }
@@ -318,17 +417,42 @@ class ApiService {
       _reconnectAttempts = 0; // Reset bei erfolgreicher Verbindung
       print("✅ WebSocket-Verbindung erfolgreich aufgebaut");
       
+      // Release-spezifische Verbindungsvalidierung
+      if (isReleaseMode) {
+        print("🔧 Release-Modus: Führe Verbindungsvalidierung durch...");
+        // Warte kurz und prüfe dann die Verbindung
+        Timer(const Duration(seconds: 2), () {
+          if (_channel != null && _webSocketListeners.isNotEmpty) {
+            print("🔧 Release-Modus: Verbindung validiert - ${_webSocketListeners.length} Listener aktiv");
+            // Sende einen Test-Ping zur Validierung
+            try {
+              _channel?.sink.add('{"type":"ping","timestamp":"${DateTime.now().toIso8601String()}","validation":true}');
+              print("🔧 Release-Modus: Validierungs-Ping gesendet");
+            } catch (e) {
+              print("❌ Release-Modus: Validierungs-Ping fehlgeschlagen: $e");
+            }
+          } else {
+            print("⚠️ Release-Modus: Verbindungsvalidierung fehlgeschlagen");
+            print("  - Channel null: ${_channel == null}");
+            print("  - Listener vorhanden: ${_webSocketListeners.isNotEmpty}");
+          }
+        });
+      }
+      
     } catch (e) {
       print("❌ Fehler beim Aufbau der WebSocket-Verbindung: $e");
       _isConnecting = false;
       
-      // Benachrichtige alle Error-Listener
-      for (var errorListener in _webSocketErrorListeners) {
+      // Benachrichtige alle Error-Listener mit robusterer Fehlerbehandlung
+      final errorListenersToNotify = List<void Function(dynamic error)?>.from(_webSocketErrorListeners);
+      for (var errorListener in errorListenersToNotify) {
         if (errorListener != null) {
           try {
             errorListener(e);
           } catch (listenerError) {
             print("❌ Fehler in Error-Listener: $listenerError");
+            // Entferne fehlerhafte Error-Listener
+            _webSocketErrorListeners.remove(errorListener);
           }
         }
       }
@@ -339,6 +463,41 @@ class ApiService {
       if (enableReconnect) {
         _scheduleReconnect();
       }
+    }
+  }
+
+  // Token-Validierung und Erneuerung
+  Future<void> _validateAndRefreshToken() async {
+    if (_accessToken == null || _loggedInUser == null) {
+      print("⚠️ Kein Token oder User für Validierung vorhanden");
+      return;
+    }
+
+    try {
+      print("🔍 Validiere Token...");
+      final response = await http.get(
+        Uri.parse('$baseUrl/api/status'),
+        headers: _authHeaders,
+      );
+      
+      if (response.statusCode == 401) {
+        print("⚠️ Token abgelaufen - versuche automatische Erneuerung...");
+        // Hier könnte man einen Refresh-Token-Mechanismus implementieren
+        // Für jetzt: WebSocket neu verbinden
+        if (_webSocketListeners.isNotEmpty) {
+          print("🔄 Token abgelaufen - WebSocket neu verbinden...");
+          disconnectWebSocket();
+          Future.delayed(Duration(seconds: 2), () {
+            if (_webSocketListeners.isNotEmpty) {
+              _connectToWebSocket();
+            }
+          });
+        }
+      } else if (response.statusCode == 200) {
+        print("✅ Token ist noch gültig");
+      }
+    } catch (e) {
+      print("❌ Fehler bei Token-Validierung: $e");
     }
   }
 
@@ -362,15 +521,36 @@ class ApiService {
     }
     
     _reconnectAttempts++;
-    final delay = Duration(seconds: _reconnectAttempts * 2); // Exponentieller Backoff
+    final isReleaseMode = const bool.fromEnvironment('dart.vm.product');
+    
+    // Angepasste Reconnect-Verzögerung für Release-Modus
+    int delaySeconds;
+    if (isReleaseMode) {
+      // Release-Modus: Längere Verzögerungen für stabilere Verbindung
+      delaySeconds = _reconnectAttempts * 3; // 3, 6, 9, 12, 15 Sekunden
+      print("🔧 Release-Modus: Verwende längere Reconnect-Verzögerungen");
+    } else {
+      // Debug-Modus: Normale Verzögerungen
+      delaySeconds = _reconnectAttempts * 2; // 2, 4, 6, 8, 10 Sekunden
+    }
+    
+    final delay = Duration(seconds: delaySeconds);
     
     print("🔄 Plane Reconnect in ${delay.inSeconds} Sekunden (Versuch $_reconnectAttempts/$_maxReconnectAttempts)");
+    print("🔧 Build-Modus: ${isReleaseMode ? 'Release' : 'Debug'}");
     
     _reconnectTimer?.cancel();
     _reconnectTimer = Timer(delay, () {
       if (_channel == null && _accessToken != null && _webSocketListeners.isNotEmpty && !_isDisconnecting) {
         print("🔄 Führe Reconnect durch...");
+        print("🔧 Aktive Listener: ${_webSocketListeners.length}");
         _connectToWebSocket(enableReconnect: true);
+      } else {
+        print("⚠️ Reconnect abgebrochen - Bedingungen nicht erfüllt");
+        print("  - Channel null: ${_channel == null}");
+        print("  - AccessToken vorhanden: ${_accessToken != null}");
+        print("  - Listener vorhanden: ${_webSocketListeners.isNotEmpty}");
+        print("  - Nicht beim Trennen: ${!_isDisconnecting}");
       }
     });
   }
@@ -423,6 +603,256 @@ class ApiService {
         _connectToWebSocket(enableReconnect: true);
       }
     });
+  }
+
+  // Test-Methode für WebSocket-Verbindung
+  Future<bool> testWebSocketConnection() async {
+    if (_accessToken == null) {
+      print("❌ Kein AccessToken für WebSocket-Test");
+      return false;
+    }
+
+    print("🧪 Teste WebSocket-Verbindung...");
+    final isReleaseMode = const bool.fromEnvironment('dart.vm.product');
+    print("🔍 Build-Modus: ${isReleaseMode ? 'Release' : 'Debug'}");
+    
+    try {
+      // Teste verschiedene WebSocket-URLs basierend auf Build-Modus
+      final testUrls = [
+        'wss://iqmedix.cloud/ws/notes?token=$_accessToken',
+        'wss://iqmedix.cloud:8443/ws/notes?token=$_accessToken',
+        'wss://iqmedix.cloud/api/ws/notes?token=$_accessToken',
+      ];
+
+      for (int i = 0; i < testUrls.length; i++) {
+        final testUrl = testUrls[i];
+        print("🧪 Teste URL ${i + 1}: $testUrl");
+        
+        try {
+          final testChannel = WebSocketChannel.connect(Uri.parse(testUrl));
+          
+          // Warte auf Verbindung oder Timeout
+          bool connected = false;
+          bool receivedPong = false;
+          Timer? timeoutTimer;
+          
+          timeoutTimer = Timer(Duration(seconds: 10), () {
+            if (!connected) {
+              print("⏰ Timeout für URL ${i + 1}");
+              testChannel.sink.close();
+            }
+          });
+          
+          testChannel.stream.listen(
+            (message) {
+              connected = true;
+              print("📥 Test-Nachricht empfangen: $message");
+              
+              // Prüfe ob es eine Pong-Nachricht ist
+              if (message is String && message.contains('"type":"pong"')) {
+                receivedPong = true;
+                print("✅ Pong-Nachricht empfangen - Verbindung funktioniert!");
+              }
+              
+              // Schließe Test-Verbindung nach erfolgreicher Nachricht
+              timeoutTimer?.cancel();
+              testChannel.sink.close();
+            },
+            onError: (error) {
+              timeoutTimer?.cancel();
+              print("❌ WebSocket-Test fehlgeschlagen für URL ${i + 1}: $error");
+              print("❌ Fehler-Typ: ${error.runtimeType}");
+            },
+            onDone: () {
+              timeoutTimer?.cancel();
+              if (connected) {
+                print("✅ WebSocket-Test abgeschlossen für URL ${i + 1}");
+              }
+            },
+          );
+          
+          // Sende Ping-Nachricht nach kurzer Verzögerung
+          Timer(Duration(milliseconds: 500), () {
+            if (!connected) {
+              testChannel.sink.add('{"type":"ping","timestamp":"${DateTime.now().toIso8601String()}"}');
+              print("↪️ Ping-Nachricht gesendet für Test");
+            }
+          });
+          
+          // Warte auf Ergebnis
+          await Future.delayed(Duration(seconds: 12));
+          
+          if (connected && receivedPong) {
+            print("✅ Beste WebSocket-URL gefunden: $testUrl");
+            return true;
+          } else if (connected) {
+            print("⚠️ Verbindung hergestellt, aber kein Pong empfangen für URL ${i + 1}");
+          }
+          
+        } catch (e) {
+          print("❌ Fehler beim Testen von URL ${i + 1}: $e");
+          print("❌ Fehler-Typ: ${e.runtimeType}");
+        }
+      }
+      
+      print("❌ Keine funktionierende WebSocket-URL gefunden");
+      return false;
+      
+    } catch (e) {
+      print("❌ WebSocket-Test fehlgeschlagen: $e");
+      return false;
+    }
+  }
+
+  // Test-Broadcast vom Server anfordern
+  Future<bool> testServerBroadcast() async {
+    try {
+      print("🧪 Fordere Test-Broadcast vom Server an...");
+      final response = await http.post(
+        Uri.parse('$baseUrl/api/debug/broadcast'),
+        headers: _authHeaders,
+      );
+      
+      if (response.statusCode == 200) {
+        final result = json.decode(response.body);
+        print("✅ Test-Broadcast angefordert: $result");
+        return true;
+      } else {
+        print("❌ Test-Broadcast fehlgeschlagen: ${response.statusCode}");
+        return false;
+      }
+    } catch (e) {
+      print("❌ Fehler beim Test-Broadcast: $e");
+      return false;
+    }
+  }
+
+  // WebSocket-Status vom Server abfragen
+  Future<Map<String, dynamic>?> getWebSocketStatus() async {
+    try {
+      print("🔍 Frage WebSocket-Status vom Server ab...");
+      final response = await http.get(
+        Uri.parse('$baseUrl/api/debug/websocket'),
+        headers: _authHeaders,
+      );
+      
+      if (response.statusCode == 200) {
+        final status = json.decode(response.body);
+        print("📊 WebSocket-Status vom Server: $status");
+        return status;
+      } else {
+        print("❌ WebSocket-Status-Abfrage fehlgeschlagen: ${response.statusCode}");
+        return null;
+      }
+    } catch (e) {
+      print("❌ Fehler beim Abfragen des WebSocket-Status: $e");
+      return null;
+    }
+  }
+
+  // Direkter WebSocket-Test
+  Future<Map<String, dynamic>?> testDirectWebSocket() async {
+    try {
+      print("🧪 Führe direkten WebSocket-Test durch...");
+      final response = await http.post(
+        Uri.parse('$baseUrl/api/debug/test-websocket'),
+        headers: _authHeaders,
+      );
+      
+      if (response.statusCode == 200) {
+        final result = json.decode(response.body);
+        print("✅ Direkter WebSocket-Test abgeschlossen: $result");
+        return result;
+      } else {
+        print("❌ Direkter WebSocket-Test fehlgeschlagen: ${response.statusCode}");
+        return null;
+      }
+    } catch (e) {
+      print("❌ Fehler beim direkten WebSocket-Test: $e");
+      return null;
+    }
+  }
+
+  // Test Backend-Verbindung direkt
+  Future<bool> testBackendConnection() async {
+    try {
+      print("🧪 Teste Backend-Verbindung direkt...");
+      final isReleaseMode = const bool.fromEnvironment('dart.vm.product');
+      print("🔍 Build-Modus: ${isReleaseMode ? 'Release' : 'Debug'}");
+      
+      // Teste verschiedene Backend-Endpoints
+      final testEndpoints = [
+        '$baseUrl/api/status',
+        '$baseUrl/status',
+        '$baseUrl/api/debug/websocket',
+      ];
+      
+      for (int i = 0; i < testEndpoints.length; i++) {
+        final endpoint = testEndpoints[i];
+        print("🧪 Teste Endpoint ${i + 1}: $endpoint");
+        
+        try {
+          final response = await http.get(
+            Uri.parse(endpoint),
+            headers: _authHeaders,
+          );
+          
+          print("✅ Endpoint ${i + 1} erreichbar: ${response.statusCode}");
+          print("📄 Response Headers: ${response.headers}");
+          if (response.statusCode == 200) {
+            final body = json.decode(response.body);
+            print("📄 Response Body: $body");
+          }
+        } catch (e) {
+          print("❌ Endpoint ${i + 1} nicht erreichbar: $e");
+          print("❌ Fehler-Typ: ${e.runtimeType}");
+        }
+      }
+      
+      return true;
+    } catch (e) {
+      print("❌ Fehler beim Backend-Verbindungstest: $e");
+      return false;
+    }
+  }
+
+  // Teste Netzwerk-Konfiguration
+  Future<void> testNetworkConfiguration() async {
+    print("🌐 Teste Netzwerk-Konfiguration...");
+    final isReleaseMode = const bool.fromEnvironment('dart.vm.product');
+    print("🔍 Build-Modus: ${isReleaseMode ? 'Release' : 'Debug'}");
+    print("🔍 BaseUrl: $baseUrl");
+    print("🔍 AccessToken vorhanden: ${_accessToken != null}");
+    print("🔍 AccessToken Länge: ${_accessToken?.length ?? 0}");
+    
+    // Teste verschiedene Netzwerk-Konfigurationen
+    final testUrls = [
+      'https://iqmedix.cloud/api/status',
+      'https://iqmedix.cloud/status',
+      'wss://iqmedix.cloud/ws/notes',
+    ];
+    
+    for (int i = 0; i < testUrls.length; i++) {
+      final testUrl = testUrls[i];
+      print("🌐 Teste Netzwerk-URL ${i + 1}: $testUrl");
+      
+      try {
+        if (testUrl.startsWith('wss://')) {
+          // WebSocket-Test
+          final uri = Uri.parse(testUrl);
+          print("🌐 WebSocket URI: $uri");
+          print("🌐 WebSocket Host: ${uri.host}");
+          print("🌐 WebSocket Port: ${uri.port}");
+          print("🌐 WebSocket Path: ${uri.path}");
+        } else {
+          // HTTP-Test
+          final response = await http.get(Uri.parse(testUrl));
+          print("🌐 HTTP Response: ${response.statusCode}");
+        }
+      } catch (e) {
+        print("🌐 Netzwerk-Fehler für URL ${i + 1}: $e");
+      }
+    }
   }
 
   Future<List<List<Note>>> fetchGroupedNotes() async {

@@ -5,7 +5,8 @@ case "$1" in
         echo "Starting gunicorn server..."
         cd ~/flutter-backend
         source pyflutter/bin/activate
-        nohup gunicorn main:app -w 2 -k uvicorn.workers.UvicornWorker --bind 127.0.0.1:8000 > gunicorn.log 2>&1 &
+        # Wichtig: WebSockets benötigen einen einzelnen Worker, damit Broadcasts alle Clients erreichen
+        nohup gunicorn main:app -w 1 -k uvicorn.workers.UvicornWorker --bind 127.0.0.1:8000 > gunicorn.log 2>&1 &
         echo $! > gunicorn.pid
         echo "Gunicorn server started with PID $(cat gunicorn.pid)"
         ;;
