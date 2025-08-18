@@ -46,8 +46,15 @@ wsProxy.on('error', (err, req, socket) => {
 apiProxy.on('proxyReq', (proxyReq, req, res) => {
   console.log('📡 HTTP-API-Request für:', req.url, req.method);
   
-  // CORS-Headers setzen
-  res.setHeader('Access-Control-Allow-Origin', 'https://iqmedix.cloud');
+  // CORS-Headers setzen (Origin dynamisch spiegeln, Whitelist)
+  const allowedOrigins = new Set(['https://iqmedix.cloud', 'https://www.iqmedix.cloud']);
+  const requestOrigin = req.headers.origin;
+  if (requestOrigin && allowedOrigins.has(requestOrigin)) {
+    res.setHeader('Access-Control-Allow-Origin', requestOrigin);
+  } else {
+    res.setHeader('Access-Control-Allow-Origin', 'https://iqmedix.cloud');
+  }
+  res.setHeader('Vary', 'Origin');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, Upgrade, Connection, Sec-WebSocket-Key, Sec-WebSocket-Version, Sec-WebSocket-Protocol, Origin');
   res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -84,8 +91,15 @@ apiProxy.on('proxyReq', (proxyReq, req, res) => {
 apiProxy.on('proxyRes', (proxyRes, req, res) => {
   console.log('📡 HTTP-API-Response:', proxyRes.statusCode, 'für', req.url);
   
-  // CORS-Headers auch in Response setzen
-  res.setHeader('Access-Control-Allow-Origin', 'https://iqmedix.cloud');
+  // CORS-Headers auch in Response setzen (Origin dynamisch spiegeln, Whitelist)
+  const allowedOrigins = new Set(['https://iqmedix.cloud', 'https://www.iqmedix.cloud']);
+  const requestOrigin = req.headers.origin;
+  if (requestOrigin && allowedOrigins.has(requestOrigin)) {
+    res.setHeader('Access-Control-Allow-Origin', requestOrigin);
+  } else {
+    res.setHeader('Access-Control-Allow-Origin', 'https://iqmedix.cloud');
+  }
+  res.setHeader('Vary', 'Origin');
   res.setHeader('Access-Control-Allow-Credentials', 'true');
 });
 

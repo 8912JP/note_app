@@ -991,14 +991,72 @@ class ApiService {
 
   Future<bool> checkServerStatus() async {
     try {
+      print("🔍 Prüfe Server-Status: $baseUrl/api/status");
       final response = await http.get(Uri.parse('$baseUrl/api/status'));
+      print("📡 Server-Status Response: ${response.statusCode}");
+      print("📄 Response Headers: ${response.headers}");
+      print("📄 Response Body: ${response.body}");
+      
       if (response.statusCode == 200) {
-        final body = jsonDecode(response.body);
-        return body['status'] == 'ok';
+        try {
+          final body = jsonDecode(response.body);
+          print("📄 Parsed Body: $body");
+          final statusOk = body['status'] == 'ok';
+          print("✅ Server-Status Check: $statusOk");
+          return statusOk;
+        } catch (parseError) {
+          print("❌ JSON Parse Error: $parseError");
+          print("❌ Raw Response Body: ${response.body}");
+          return false;
+        }
+      } else {
+        print("❌ Server-Status Check: HTTP ${response.statusCode}");
+        return false;
       }
-    } catch (_) {
+    } catch (error) {
+      print("❌ Server-Status Check Exception: $error");
+      print("❌ Exception Type: ${error.runtimeType}");
       return false;
     }
+  }
+
+  // Alternative Status-Check-Methode mit mehreren Endpoints
+  Future<bool> checkServerStatusAlternative() async {
+    final endpoints = [
+      '$baseUrl/api/status',
+      '$baseUrl/status', 
+      '$baseUrl/health',
+      '$baseUrl/public/status'
+    ];
+    
+    for (int i = 0; i < endpoints.length; i++) {
+      final endpoint = endpoints[i];
+      try {
+        print("🔍 Teste Alternative Endpoint ${i + 1}: $endpoint");
+        final response = await http.get(Uri.parse(endpoint));
+        print("📡 Alternative Response ${i + 1}: ${response.statusCode}");
+        print("📄 Alternative Body ${i + 1}: ${response.body}");
+        
+        if (response.statusCode == 200) {
+          try {
+            final body = jsonDecode(response.body);
+            print("📄 Alternative Parsed Body ${i + 1}: $body");
+            
+            // Prüfe verschiedene Status-Felder
+            if (body['status'] == 'ok' || body['status'] == 'healthy' || body['status'] == 'public') {
+              print("✅ Alternative Status Check erfolgreich: $endpoint");
+              return true;
+            }
+          } catch (parseError) {
+            print("❌ Alternative JSON Parse Error ${i + 1}: $parseError");
+          }
+        }
+      } catch (error) {
+        print("❌ Alternative Endpoint ${i + 1} Exception: $error");
+      }
+    }
+    
+    print("❌ Alle alternativen Endpoints fehlgeschlagen");
     return false;
   }
 }
