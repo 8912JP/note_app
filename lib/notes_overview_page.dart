@@ -797,20 +797,6 @@ class _NotesOverviewPageState extends State<NotesOverviewPage> {
           ),
         ),
         actions: [
-          // Aktueller Benutzer
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8.0),
-            child: Center(
-              child: Text(
-                apiService.loggedInUser ?? 'Nicht eingeloggt',
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w500,
-                  color: Colors.white70,
-                ),
-              ),
-            ),
-          ),
           // Debug-Button für WebSocket-Status
           IconButton(
             icon: Icon(Icons.bug_report),
