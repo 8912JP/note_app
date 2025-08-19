@@ -21,6 +21,7 @@ class _GroupedNotesPageState extends State<GroupedNotesPage> {
   String _selectedStatus = "all";
   DateTimeRange? _selectedDateRange;
   List<String> _selectedLabelsFilter = [];
+  bool _wsListenerAdded = false;
 
   @override
   void initState() {
@@ -31,8 +32,13 @@ class _GroupedNotesPageState extends State<GroupedNotesPage> {
   }
 
   void _setupWebSocket() {
-    // Separate Aufrufe für Listener und Error-Listener
-    apiService.addWebSocketListener(_handleWebSocketEvent);
+    // Prüfe ob der Listener bereits hinzugefügt wurde
+    if (!_wsListenerAdded) {
+      apiService.addWebSocketListener(_handleWebSocketEvent);
+      _wsListenerAdded = true;
+      print("📡 WebSocket-Listener in GroupedNotes hinzugefügt");
+    }
+    
     apiService.addWebSocketErrorListener((error) {
       debugPrint('❌ WebSocket Fehler in GroupedNotes: $error');
       print('❌ WebSocket Fehler Details: $error');

@@ -86,13 +86,23 @@ async def create_note(note: schemas.NoteCreate, db: Session = Depends(get_db), c
         "event": "note_created", 
         "id": db_note.id,
         "note": note_dict,
+        "user": current_user.username,
         "timestamp": str(datetime.now())
     })
+    
+    # Wenn die Note mit einem CRM-Eintrag verknüpft ist, sende auch CRM-Event
+    if db_note.crm_entry_id:
+        await broadcast_update({
+            "event": "crm_updated", 
+            "id": db_note.crm_entry_id,
+            "user": current_user.username,
+            "timestamp": str(datetime.now())
+        })
     return db_note
 
 @app.put("/notes/{note_id}", response_model=schemas.NoteOut)
 @app.put("/api/notes/{note_id}", response_model=schemas.NoteOut)
-async def update_note(note_id: int, note: schemas.NoteUpdate, db: Session = Depends(get_db)):
+async def update_note(note_id: int, note: schemas.NoteUpdate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     print(f"📝 Aktualisiere Note: {note_id}")
     db_note = crud.update_note(db, note_id, note)
     if not db_note:
@@ -113,22 +123,49 @@ async def update_note(note_id: int, note: schemas.NoteUpdate, db: Session = Depe
         "event": "note_updated", 
         "id": db_note.id,
         "note": note_dict,
+        "user": current_user.username,
         "timestamp": str(datetime.now())
     })
+    
+    # Wenn die Note mit einem CRM-Eintrag verknüpft ist, sende auch CRM-Event
+    if db_note.crm_entry_id:
+        await broadcast_update({
+            "event": "crm_updated", 
+            "id": db_note.crm_entry_id,
+            "user": current_user.username,
+            "timestamp": str(datetime.now())
+        })
     return db_note
 
 @app.delete("/notes/{note_id}", status_code=204)
 @app.delete("/api/notes/{note_id}", status_code=204)
-async def delete_note(note_id: int, db: Session = Depends(get_db)):
+async def delete_note(note_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     print(f"🗑️ Lösche Note: {note_id}")
     if not crud.delete_note(db, note_id):
         raise HTTPException(status_code=404, detail="Notiz nicht gefunden")
     print(f"📡 Sende Broadcast für gelöschte Note: {note_id}")
+    # Hole CRM-Eintrag ID vor dem Löschen der Note
+    crm_entry_id = None
+    if hasattr(crud, 'get_note_by_id'):
+        note = crud.get_note_by_id(db, note_id)
+        if note and note.crm_entry_id:
+            crm_entry_id = note.crm_entry_id
+    
     await broadcast_update({
         "event": "note_deleted", 
         "id": note_id,
+        "user": current_user.username,
         "timestamp": str(datetime.now())
     })
+    
+    # Wenn die Note mit einem CRM-Eintrag verknüpft war, sende auch CRM-Event
+    if crm_entry_id:
+        await broadcast_update({
+            "event": "crm_updated", 
+            "id": crm_entry_id,
+            "user": current_user.username,
+            "timestamp": str(datetime.now())
+        })
 
 @app.get("/notes/grouped", response_model=List[List[schemas.NoteOut]])
 @app.get("/api/notes/grouped", response_model=List[List[schemas.NoteOut]])
@@ -326,21 +363,43 @@ def get_crm_entries(db: Session = Depends(get_db)):
     return crud.get_all_crm_entries(db)
 
 @app.post("/crm/", response_model=CrmEntryOut, status_code=201)
-async def create_crm_entry(entry: CrmEntryCreate, db: Session = Depends(get_db)):
+async def create_crm_entry(entry: CrmEntryCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     created = crud.create_crm_entry(db, entry)
     await broadcast_crm_update({"event": "crm_created", "id": created.id})
+    # Zusätzlich: über den gemeinsamen Kanal an alle Notes-WS-Clients senden
+    await broadcast_update({
+        "event": "crm_created",
+        "id": created.id,
+        "user": current_user.username,
+        "timestamp": str(datetime.now())
+    })
     return created
 
 @app.put("/crm/{entry_id}", response_model=CrmEntryOut)
-async def update_crm_entry(entry_id: str, entry: CrmEntryUpdate, db: Session = Depends(get_db)):
+async def update_crm_entry(entry_id: str, entry: CrmEntryUpdate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     updated = crud.update_crm_entry(db, entry_id, entry)
     await broadcast_crm_update({"event": "crm_updated", "id": entry_id})
+    # Zusätzlich: über den gemeinsamen Kanal an alle Notes-WS-Clients senden
+    await broadcast_update({
+        "event": "crm_updated",
+        "id": entry_id,
+        "user": current_user.username,
+        "timestamp": str(datetime.now())
+    })
     return updated
 
 @app.delete("/crm/{entry_id}", status_code=204)
-async def delete_crm_entry(entry_id: str, db: Session = Depends(get_db)):
+async def delete_crm_entry(entry_id: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     if not crud.delete_crm_entry(db, entry_id):
         raise HTTPException(status_code=404, detail="CRM-Eintrag nicht gefunden")
+    # Nach erfolgreichem Löschen Broadcasts senden
+    await broadcast_crm_update({"event": "crm_deleted", "id": entry_id})
+    await broadcast_update({
+        "event": "crm_deleted",
+        "id": entry_id,
+        "user": current_user.username,
+        "timestamp": str(datetime.now())
+    })
 
 @app.get("/status")
 @app.get("/api/status")

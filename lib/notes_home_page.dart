@@ -6,6 +6,7 @@ import 'api_service.dart';
 import 'crm_overview_page.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'statistik_page.dart';
+import 'notification_indicator.dart';
 
 class NotesHomePage extends StatefulWidget {
   final ApiService apiService;
@@ -23,11 +24,43 @@ class _NotesHomePageState extends State<NotesHomePage> with SingleTickerProvider
   void initState() {
     super.initState();
     _tabController = TabController(length: 4, vsync: this);
+    
+    // Registriere Notification-Callbacks
+    widget.apiService.notificationService.setNoteNotificationCallback(() {
+      if (mounted) setState(() {});
+    });
+    widget.apiService.notificationService.setCrmNotificationCallback(() {
+      if (mounted) setState(() {});
+    });
+    
+    // Listener für Tab-Wechsel
+    _tabController.addListener(_onTabChanged);
+  }
+  
+  void _onTabChanged() {
+    if (!_tabController.indexIsChanging) {
+      // Markiere Notifications als gesehen basierend auf aktivem Tab
+      switch (_tabController.index) {
+        case 0: // Notizen
+        case 1: // Gruppiert
+          widget.apiService.notificationService.markNotesAsSeen();
+          break;
+        case 2: // CRM
+          widget.apiService.notificationService.markCrmAsSeen();
+          break;
+      }
+    }
   }
 
   @override
   void dispose() {
+    _tabController.removeListener(_onTabChanged);
     _tabController.dispose();
+    
+    // Entferne Notification-Callbacks
+    widget.apiService.notificationService.removeNoteNotificationCallback();
+    widget.apiService.notificationService.removeCrmNotificationCallback();
+    
     super.dispose();
   }
 
@@ -55,11 +88,20 @@ class _NotesHomePageState extends State<NotesHomePage> with SingleTickerProvider
         ),
         bottom: TabBar(
           controller: _tabController,
-          tabs: const [
-            Tab(text: 'Notizen'),
-            Tab(text: 'Gruppiert'),
-            Tab(text: 'CRM'),
-            Tab(text: 'Statistik'),
+          tabs: [
+            NoteNotificationIndicator(
+              notificationService: widget.apiService.notificationService,
+              child: const Tab(text: 'Notizen'),
+            ),
+            NoteNotificationIndicator(
+              notificationService: widget.apiService.notificationService,
+              child: const Tab(text: 'Gruppiert'),
+            ),
+            CrmNotificationIndicator(
+              notificationService: widget.apiService.notificationService,
+              child: const Tab(text: 'CRM'),
+            ),
+            const Tab(text: 'Statistik'),
           ],
         ),
       ),

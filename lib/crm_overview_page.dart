@@ -1,8 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:web_socket_channel/web_socket_channel.dart';
-import 'package:web_socket_channel/status.dart' as status;
-import 'dart:convert';
 import 'dart:developer';
 
 import 'crm_entry.dart';
@@ -76,10 +73,21 @@ class CrmEntryProvider extends ChangeNotifier {
   Future<void> loadEntries(ApiService apiService) async {
     try {
       _entries = await apiService.fetchCrmEntries();
-      _entries.sort((a, b) => (b.anfrageDatum ?? DateTime(1900)).compareTo(a.anfrageDatum ?? DateTime(1900)));
+      // Backend sortiert bereits nach anfrage_datum, aber wir sortieren nochmal zur Sicherheit
+      _entries.sort((a, b) {
+        final aDate = a.anfrageDatum ?? DateTime(1900);
+        final bDate = b.anfrageDatum ?? DateTime(1900);
+        final dateComparison = bDate.compareTo(aDate);
+        if (dateComparison != 0) return dateComparison;
+        // Bei gleichem Datum nach ID sortieren (neueste zuerst)
+        return b.id.compareTo(a.id);
+      });
       sortColumnIndex = 0;
       sortAscending = false;
       notifyListeners();
+      
+      // Aktualisiere alle Tracking-Icons nach dem Laden
+      _updateAllTrackingIcons();
     } catch (e) {
       log("Fehler beim Laden der CRM-Daten: $e");
     }
@@ -137,7 +145,7 @@ class CRMOverviewPage extends StatefulWidget {
 }
 
 class CRMOverviewPageState extends State<CRMOverviewPage> {
-  WebSocketChannel? _channel;
+  void Function(Map<String, dynamic> data)? _notesWsListener;
   DateTimeRange? _selectedDateRange;
 
   bool _initialized = false; // Damit loadEntries & WS nur einmal starten
@@ -149,57 +157,41 @@ class CRMOverviewPageState extends State<CRMOverviewPage> {
     if (!_initialized) {
       final provider = Provider.of<CrmEntryProvider>(context, listen: false);
       provider.loadEntries(widget.apiService);
-      _connectToCrmWebSocket();
+      _registerSharedWebSocketListener();
       _initialized = true;
     }
   }
 
-  void _connectToCrmWebSocket() {
-    if (_channel != null) return; // Verhindere Mehrfachverbindungen
-
-    final token = widget.apiService.accessToken;
-    if (token == null) {
-      log("❌ Kein Token für WebSocket");
-      return;
-    }
-
-    // CRM WebSocket über Node.js-Proxy aktiviert
-    log("🔌 CRM WebSocket wird über Node.js-Proxy aktiviert");
-
-                    // WebSocket über Proxy zu FastAPI
-            final wsUrl = 'ws://iqmedix.cloud/ws/crm?token=$token';
-    log("🔌 Verbinde CRM WebSocket: $wsUrl");
-    
-    _channel = WebSocketChannel.connect(
-      Uri.parse(wsUrl),
-    );
-
-    _channel!.stream.listen(
-      (message) {
-        try {
-          final data = json.decode(message);
-          log("📥 CRM-Event: $data");
-          final event = data['event'];
-          if (event == 'crm_created' || event == 'crm_updated') {
-            final provider = Provider.of<CrmEntryProvider>(context, listen: false);
-            provider.loadEntries(widget.apiService);
-          }
-        } catch (e) {
-          log("❌ Fehler beim Parsen der CRM WebSocket Nachricht: $e");
+  void _registerSharedWebSocketListener() {
+    // Registriere Listener auf dem gemeinsamen Notes-WebSocket-Kanal
+    _notesWsListener = (Map<String, dynamic> data) {
+      try {
+        final event = data['event'];
+        if (event == 'crm_created' || event == 'crm_updated' || event == 'crm_deleted') {
+          log("📥 CRM-Event (shared WS): $data");
+          final provider = Provider.of<CrmEntryProvider>(context, listen: false);
+          provider.loadEntries(widget.apiService);
+          
+          // Sende Event an NotificationService für rote Punkte
+          widget.apiService.notificationService.handleWebSocketEvent(data);
         }
-      },
-      onError: (error) {
-        log("❌ WebSocket Fehler: $error");
-      },
-      onDone: () {
-        log("🔌 WebSocket Verbindung geschlossen");
-      },
-    );
+      } catch (e) {
+        log("❌ Fehler im CRM Shared WS Listener: $e");
+      }
+    };
+    widget.apiService.addWebSocketListener(_notesWsListener!);
   }
 
   @override
   void dispose() {
-    _channel?.sink.close(status.normalClosure);
+    if (_notesWsListener != null) {
+      widget.apiService.removeWebSocketListener(_notesWsListener!);
+      _notesWsListener = null;
+    }
+    
+    // Entferne den zentralen Tracking-Listener beim Verlassen der Seite
+    _cleanupCentralTrackingListener(widget.apiService);
+    
     super.dispose();
   }
 
@@ -334,6 +326,18 @@ class CRMOverviewPageState extends State<CRMOverviewPage> {
                 return bDate.compareTo(aDate);
               });
               provider.notifyListeners();
+            },
+          ),
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            tooltip: 'Aktualisieren',
+            onPressed: () async {
+              final provider = Provider.of<CrmEntryProvider>(context, listen: false);
+              await provider.loadEntries(widget.apiService);
+              // Markiere CRM als gesehen (entferne rote Punkte)
+              widget.apiService.notificationService.markCrmAsSeen();
+              // Aktualisiere alle Tracking-Icons
+              _updateAllTrackingIcons();
             },
           ),
         ],
@@ -681,6 +685,71 @@ class CrmDataSource extends DataTableSource {
 }
 }
 
+// Globale Liste aller aktiven Tracking-Icons für manuelle Updates
+final Set<_TrackingIconState> _activeTrackingIcons = <_TrackingIconState>{};
+
+// Zentraler WebSocket-Listener für alle Tracking-Icons
+void Function(Map<String, dynamic>)? _centralTrackingListener;
+
+// Globale Funktion um alle Tracking-Icons zu aktualisieren
+void _updateAllTrackingIcons() {
+  for (final icon in _activeTrackingIcons) {
+    if (icon.mounted && !icon._disposed) {
+      icon._fetchNote();
+    }
+  }
+}
+
+// Zentraler WebSocket-Listener für alle Tracking-Icons
+void _setupCentralTrackingListener(ApiService apiService) {
+  if (_centralTrackingListener != null) {
+    // Listener bereits vorhanden, entferne ihn zuerst
+    apiService.removeWebSocketListener(_centralTrackingListener!);
+  }
+  
+  _centralTrackingListener = (Map<String, dynamic> data) {
+    try {
+      final event = data['event'] as String?;
+      final noteData = data['note'] as Map<String, dynamic>?;
+      
+      // Reagiere auf Note-Events
+      if (event == 'note_created' || event == 'note_updated' || event == 'note_deleted') {
+        if (noteData != null) {
+          final incomingNote = Note.fromJson(Map<String, dynamic>.from(noteData));
+          // Aktualisiere alle Tracking-Icons, die zu diesem CRM-Eintrag gehören
+          for (final icon in _activeTrackingIcons) {
+            if (icon.mounted && !icon._disposed && 
+                incomingNote.crmEntryId == icon.widget.crmEntryId && 
+                incomingNote.trackingType == icon.widget.trackingType) {
+              icon._fetchNote();
+            }
+          }
+        }
+      }
+      
+      // Reagiere auch auf CRM-Events
+      if (event == 'crm_created' || event == 'crm_updated' || event == 'crm_deleted') {
+        // Bei CRM-Änderungen alle Tracking-Icons aktualisieren
+        _updateAllTrackingIcons();
+      }
+    } catch (e) {
+      log("❌ Fehler im zentralen Tracking-Listener: $e");
+    }
+  };
+  
+  apiService.addWebSocketListener(_centralTrackingListener!);
+  log("📡 Zentraler Tracking-Listener eingerichtet");
+}
+
+// Funktion zum Aufräumen des zentralen Listeners
+void _cleanupCentralTrackingListener(ApiService apiService) {
+  if (_centralTrackingListener != null) {
+    apiService.removeWebSocketListener(_centralTrackingListener!);
+    _centralTrackingListener = null;
+    log("📡 Zentraler Tracking-Listener entfernt");
+  }
+}
+
 class _TrackingIcon extends StatefulWidget {
   final String crmEntryId;
   final String trackingType;
@@ -715,11 +784,22 @@ class _TrackingIconState extends State<_TrackingIcon> {
   void initState() {
     super.initState();
     _fetchNote();
+    _activeTrackingIcons.add(this);
+    
+    // Stelle sicher, dass der zentrale Listener eingerichtet ist
+    _setupCentralTrackingListener(ApiService());
   }
 
   @override
   void dispose() {
     _disposed = true;
+    _activeTrackingIcons.remove(this);
+    
+    // Wenn keine Tracking-Icons mehr aktiv sind, entferne den zentralen Listener
+    if (_activeTrackingIcons.isEmpty) {
+      _cleanupCentralTrackingListener(ApiService());
+    }
+    
     super.dispose();
   }
 

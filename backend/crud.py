@@ -118,13 +118,18 @@ def get_note_by_id(db: Session, note_id: int):
     return db.query(models.Note).filter(models.Note.id == note_id).first()
 
 def get_all_crm_entries(db: Session):
-    return db.query(CrmEntry).all()
+    return db.query(CrmEntry).order_by(desc(CrmEntry.anfrage_datum), desc(CrmEntry.id)).all()
 
 def create_crm_entry(db: Session, entry: CrmEntryCreate):
     # 🛠️ ToDoItems als Liste von Dicts extrahieren:
     entry_data = entry.model_dump()
     if entry_data.get("todos"):
         entry_data["todos"] = [todo.model_dump() for todo in entry.todos]
+
+    # Setze anfrage_datum auf aktuelles Datum, falls nicht gesetzt
+    if not entry_data.get("anfrage_datum"):
+        from datetime import datetime
+        entry_data["anfrage_datum"] = datetime.now()
 
     db_entry = CrmEntry(**entry_data)
     db.add(db_entry)

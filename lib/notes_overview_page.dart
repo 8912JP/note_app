@@ -24,6 +24,7 @@ class _NotesOverviewPageState extends State<NotesOverviewPage> {
   void Function(dynamic error)? _wsErrorListener;
   // Vereinfachte Event-Verarbeitung: keine Buffer/Debounce
   final Set<int> _updatingNoteIds = <int>{};
+  bool _wsListenersAdded = false;
 
   // Filter-States
   String _searchText = "";
@@ -86,9 +87,13 @@ class _NotesOverviewPageState extends State<NotesOverviewPage> {
         }
       };
 
-    // Separate Aufrufe für Listener und Error-Listener
-    apiService.addWebSocketListener(_wsListener!);
-    apiService.addWebSocketErrorListener(_wsErrorListener!);
+    // Prüfe ob die Listener bereits hinzugefügt wurden
+    if (!_wsListenersAdded) {
+      apiService.addWebSocketListener(_wsListener!);
+      apiService.addWebSocketErrorListener(_wsErrorListener!);
+      _wsListenersAdded = true;
+      print("📡 WebSocket-Listener in NotesOverview hinzugefügt");
+    }
   }
 
   Future<void> _handleWebSocketEvent(dynamic data) async {
@@ -124,6 +129,8 @@ class _NotesOverviewPageState extends State<NotesOverviewPage> {
             } else {
               allNotes.add(incoming);
             }
+            // Sortiere nach created_at (neueste zuerst)
+            allNotes.sort((a, b) => b.createdAt.compareTo(a.createdAt));
           });
           print("✅ Note aktualisiert: ${incoming.id}");
         } else {
@@ -137,6 +144,8 @@ class _NotesOverviewPageState extends State<NotesOverviewPage> {
               } else {
                 allNotes.add(fetched);
               }
+              // Sortiere nach created_at (neueste zuerst)
+              allNotes.sort((a, b) => b.createdAt.compareTo(a.createdAt));
             });
             print("✅ Note nachgeladen und aktualisiert: ${fetched.id}");
           }
@@ -158,6 +167,8 @@ class _NotesOverviewPageState extends State<NotesOverviewPage> {
           setState(() {
             if (!allNotes.any((n) => n.id == incoming.id)) {
               allNotes.add(incoming);
+              // Sortiere nach created_at (neueste zuerst)
+              allNotes.sort((a, b) => b.createdAt.compareTo(a.createdAt));
             }
           });
           print("✅ Neue Note erstellt: ${incoming.id}");
@@ -168,6 +179,8 @@ class _NotesOverviewPageState extends State<NotesOverviewPage> {
             setState(() {
               if (!allNotes.any((n) => n.id == fetched.id)) {
                 allNotes.add(fetched);
+                // Sortiere nach created_at (neueste zuerst)
+                allNotes.sort((a, b) => b.createdAt.compareTo(a.createdAt));
               }
             });
             print("✅ Neue Note nachgeladen: ${fetched.id}");
@@ -210,6 +223,10 @@ class _NotesOverviewPageState extends State<NotesOverviewPage> {
         allNotes = notes;
         isLoading = false;
       });
+      
+      // Markiere Notes als gesehen (entferne rote Punkte)
+      apiService.notificationService.markNotesAsSeen();
+      
     } catch (e) {
       if (!mounted) return;
       setState(() => isLoading = false);

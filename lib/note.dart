@@ -32,8 +32,12 @@ class Note {
   }) : createdAt = createdAt ?? DateTime.now();
 
   factory Note.fromJson(Map<String, dynamic> json) {
+    // ID kann als String oder int kommen, konvertiere sicher zu int?
+    final idRaw = json['id'];
+    final id = idRaw is int ? idRaw : (idRaw is String ? int.tryParse(idRaw) : null);
+    
     return Note(
-      id: json['id'],
+      id: id,
       firstName: json['first_name'] ?? json['firstName'],
       lastName: json['last_name'] ?? json['lastName'],
       email: json['email'],

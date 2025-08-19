@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 import 'package:note_app/note.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'crm_entry.dart'; // dein Modell
+import 'notification_service.dart';
 
 class ApiService {
   static final ApiService _instance = ApiService._internal();
@@ -15,6 +16,10 @@ class ApiService {
   String? _loggedInUser;
   String? get loggedInUser => _loggedInUser;
   String? get accessToken => _accessToken;
+  
+  // Notification Service
+  final NotificationService _notificationService = NotificationService();
+  NotificationService get notificationService => _notificationService;
 
   WebSocketChannel? _channel;
   Timer? _wsHeartbeatTimer;
@@ -71,8 +76,11 @@ class ApiService {
     if (response.statusCode == 200) {
       final data = json.decode(response.body);
       _accessToken = data['access_token'];
-      _loggedInUser =
-          username; // <-- Hier den aktuell eingeloggten User speichern
+      _loggedInUser = username; // <-- Hier den aktuell eingeloggten User speichern
+      
+      // Setze aktuellen Benutzer im NotificationService
+      _notificationService.setCurrentUser(username);
+      
       print("✅ AccessToken gesetzt: $_accessToken");
       return true;
     } else {
@@ -385,6 +393,9 @@ class ApiService {
           try {
             final data = json.decode(message);
             print("📥 WebSocket Nachricht empfangen: $data");
+            
+            // Verarbeite Event für Notifications
+            _notificationService.handleWebSocketEvent(data);
             
             // Benachrichtige alle Listener mit robusterer Fehlerbehandlung
             final listenersToNotify = List<void Function(Map<String, dynamic> data)>.from(_webSocketListeners);
