@@ -82,6 +82,12 @@ class ApiService {
       _notificationService.setCurrentUser(username);
       
       print("✅ AccessToken gesetzt: $_accessToken");
+      
+      // Falls bereits WebSocket-Listener registriert sind, jetzt verbinden
+      if (_webSocketListeners.isNotEmpty) {
+        print("🔌 Starte WebSocket-Verbindung nach Login (Listener vorhanden: ${_webSocketListeners.length})");
+        _connectToWebSocket();
+      }
       return true;
     } else {
       print("❌ Login fehlgeschlagen: ${response.statusCode}");

@@ -4,6 +4,7 @@ import 'note.dart';       // Import der Note-Klasse aus note.dart
 import 'form_page.dart';
 import 'api_service.dart';
 import 'dart:async';
+import 'websocket_manager.dart';
 
 // für Datumsausgabe
 
@@ -39,8 +40,11 @@ class _NotesOverviewPageState extends State<NotesOverviewPage> {
     super.initState();
     apiService = widget.apiService;
     _loadNotes();
-    _setupWebSocket();
-    _startWebSocketMonitoring();
+    
+    // Initialisiere WebSocket-Manager und registriere beide Updater
+    WebSocketManager().initialize();
+    WebSocketManager().registerNotesFullReloadUpdater(_loadNotes);
+    WebSocketManager().registerNotesUpdater(_handleNoteUpdate);
   }
 
   Timer? _wsMonitoringTimer;
@@ -203,10 +207,10 @@ class _NotesOverviewPageState extends State<NotesOverviewPage> {
 
   @override
   void dispose() {
-    // WebSocket-Listener entfernen
-    if (_wsListener != null) {
-      apiService.removeWebSocketListener(_wsListener!);
-    }
+    // Entferne vom WebSocket-Manager
+    WebSocketManager().unregisterNotesFullReloadUpdater(_loadNotes);
+    WebSocketManager().unregisterNotesUpdater(_handleNoteUpdate);
+    
     // Monitoring-Timer stoppen
     _wsMonitoringTimer?.cancel();
     super.dispose();
@@ -247,6 +251,35 @@ class _NotesOverviewPageState extends State<NotesOverviewPage> {
           ),
         );
       }
+    }
+  }
+
+  // Intelligente Note-Update-Behandlung ohne vollständiges Neuladen
+  void _handleNoteUpdate(Map<String, dynamic> data) {
+    if (!mounted) return;
+    
+    try {
+      final noteData = data['note'] as Map<String, dynamic>?;
+      if (noteData != null) {
+        final updatedNote = Note.fromJson(noteData);
+        
+        setState(() {
+          final index = allNotes.indexWhere((note) => note.id == updatedNote.id);
+          if (index != -1) {
+            // Aktualisiere bestehende Note
+            allNotes[index] = updatedNote;
+            print("✅ Note aktualisiert: ${updatedNote.id}");
+          } else {
+            // Füge neue Note hinzu (falls sie nicht bereits vorhanden ist)
+            allNotes.add(updatedNote);
+            print("✅ Neue Note hinzugefügt: ${updatedNote.id}");
+          }
+          // Sortiere nach created_at (neueste zuerst)
+          allNotes.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+        });
+      }
+    } catch (e) {
+      print("❌ Fehler beim Aktualisieren der Note: $e");
     }
   }
 

@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import 'note.dart';
 import 'form_page.dart';
 import 'api_service.dart';
+import 'websocket_manager.dart';
 
 class GroupedNotesPage extends StatefulWidget {
   final ApiService apiService;
@@ -28,39 +29,15 @@ class _GroupedNotesPageState extends State<GroupedNotesPage> {
     super.initState();
     apiService = widget.apiService;
     _loadNotes();
-    _setupWebSocket();
+    
+    // Initialisiere WebSocket-Manager und registriere beide Updater (stabile Referenzen)
+    WebSocketManager().initialize();
+    WebSocketManager().registerNotesFullReloadUpdater(_loadNotes);
+    WebSocketManager().registerNotesUpdater(_handleNoteUpdate);
   }
 
   void _setupWebSocket() {
-    // Prüfe ob der Listener bereits hinzugefügt wurde
-    if (!_wsListenerAdded) {
-      apiService.addWebSocketListener(_handleWebSocketEvent);
-      _wsListenerAdded = true;
-      print("📡 WebSocket-Listener in GroupedNotes hinzugefügt");
-    }
-    
-    apiService.addWebSocketErrorListener((error) {
-      debugPrint('❌ WebSocket Fehler in GroupedNotes: $error');
-      print('❌ WebSocket Fehler Details: $error');
-      print('❌ Fehler-Typ: ${error.runtimeType}');
-      
-      // Zeige WebSocket-Status
-      print('🔌 WebSocket Status: ${apiService.isWebSocketConnected() ? "Verbunden" : "Nicht verbunden"}');
-      
-      // Versuche manuellen Reconnect bei kritischen Fehlern
-      if (error.toString().contains('Connection refused') || 
-          error.toString().contains('SocketException') ||
-          error.toString().contains('timeout')) {
-        print('🔄 Versuche manuellen Reconnect in GroupedNotes...');
-        // Kurze Verzögerung, dann neu verbinden
-        Future.delayed(Duration(seconds: 2), () {
-          if (mounted) {
-            apiService.removeWebSocketListener(_handleWebSocketEvent);
-            apiService.addWebSocketListener(_handleWebSocketEvent);
-          }
-        });
-      }
-    });
+    // Diese Methode wird nicht mehr benötigt, da der WebSocket-Manager verwendet wird
   }
 
   Future<void> _loadNotes() async {
@@ -76,6 +53,24 @@ class _GroupedNotesPageState extends State<GroupedNotesPage> {
       });
     } catch (e) {
       debugPrint('Fehler beim Laden: $e');
+    }
+  }
+
+  // Intelligente Note-Update-Behandlung für GroupedNotes
+  void _handleNoteUpdate(Map<String, dynamic> data) {
+    if (!mounted) return;
+    
+    try {
+      final noteData = data['note'] as Map<String, dynamic>?;
+      if (noteData != null) {
+        final updatedNote = Note.fromJson(noteData);
+        
+        // Aktualisiere die Note in der gruppierten Liste
+        _updateOrInsertNote(updatedNote);
+        print("✅ GroupedNote aktualisiert: ${updatedNote.id}");
+      }
+    } catch (e) {
+      print("❌ Fehler beim Aktualisieren der GroupedNote: $e");
     }
   }
 
@@ -114,8 +109,9 @@ class _GroupedNotesPageState extends State<GroupedNotesPage> {
 
   @override
   void dispose() {
-    // WebSocket-Listener entfernen
-    apiService.removeWebSocketListener(_handleWebSocketEvent);
+    // Entferne vom WebSocket-Manager (stabile Referenzen)
+    WebSocketManager().unregisterNotesFullReloadUpdater(_loadNotes);
+    WebSocketManager().unregisterNotesUpdater(_handleNoteUpdate);
     super.dispose();
   }
 
