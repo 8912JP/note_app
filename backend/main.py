@@ -358,11 +358,11 @@ async def broadcast_crm_update(data: dict):
     
     print(f"📊 Verbleibende CRM WebSocket-Clients nach Broadcast: {len(crm_clients)}")
 
-@app.get("/crm/", response_model=List[CrmEntryOut])
+@app.get("/api/crm/", response_model=List[CrmEntryOut])
 def get_crm_entries(db: Session = Depends(get_db)):
     return crud.get_all_crm_entries(db)
 
-@app.post("/crm/", response_model=CrmEntryOut, status_code=201)
+@app.post("/api/crm/", response_model=CrmEntryOut, status_code=201)
 async def create_crm_entry(entry: CrmEntryCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     created = crud.create_crm_entry(db, entry)
     await broadcast_crm_update({"event": "crm_created", "id": created.id})
@@ -375,7 +375,7 @@ async def create_crm_entry(entry: CrmEntryCreate, db: Session = Depends(get_db),
     })
     return created
 
-@app.put("/crm/{entry_id}", response_model=CrmEntryOut)
+@app.put("/api/crm/{entry_id}", response_model=CrmEntryOut)
 async def update_crm_entry(entry_id: str, entry: CrmEntryUpdate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     updated = crud.update_crm_entry(db, entry_id, entry)
     await broadcast_crm_update({"event": "crm_updated", "id": entry_id})
@@ -388,7 +388,7 @@ async def update_crm_entry(entry_id: str, entry: CrmEntryUpdate, db: Session = D
     })
     return updated
 
-@app.delete("/crm/{entry_id}", status_code=204)
+@app.delete("/api/crm/{entry_id}", status_code=204)
 async def delete_crm_entry(entry_id: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     if not crud.delete_crm_entry(db, entry_id):
         raise HTTPException(status_code=404, detail="CRM-Eintrag nicht gefunden")

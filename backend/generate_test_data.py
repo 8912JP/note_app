@@ -18,13 +18,8 @@ import os
 from dotenv import load_dotenv
 load_dotenv()
 
-DB_USER = os.getenv("DB_USER")
-DB_PASS = os.getenv("DB_PASS")
-DB_HOST = os.getenv("DB_HOST")
-DB_PORT = 3306
-DB_NAME = os.getenv("DB_NAME")
-
-DATABASE_URL = f"mysql+pymysql://{DB_USER}:{DB_PASS}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+# Verwende die gleiche Datenbankverbindung wie das Backend
+from database import DATABASE_URL
 
 # Realistische Testdaten
 VORNAMEN = [
@@ -81,9 +76,9 @@ ORTE = [
 ]
 
 TODO_TEXTE = [
-    "Anamnesebogen ausfüllen", "Termin vereinbaren", "Unterlagen anfordern", "Rückruf", 
-    "Beratungsgespräch führen", "Zweitmeinung einholen", "Kostenübernahme klären",
-    "Behandlungsplan erstellen", "Nachsorge planen", "Familienangehörige informieren"
+    "Anamnesebogen", "Termin", "Unterlagen", "Rückruf", 
+    "Beratung", "Zweitmeinung", "Kostenübernahme",
+    "Behandlungsplan", "Nachsorge", "Familie informieren"
 ]
 
 def generate_phone():
@@ -126,7 +121,7 @@ def generate_address():
 def generate_todos():
     """Generiert realistische ToDo-Items"""
     todos = []
-    num_todos = random.randint(0, 4)
+    num_todos = random.randint(0, 2)  # Reduziert von 4 auf 2
     
     for _ in range(num_todos):
         text = random.choice(TODO_TEXTE)
@@ -176,7 +171,7 @@ def create_crm_entry(year):
         mobil=generate_phone(),
         festnetz=generate_festnetz(),
         krankheitsstatus=random.choice(KRANKHEITSSTATUS),
-        todos=json.dumps(generate_todos()),
+        todos=generate_todos(),  # Direkt als Liste, nicht als JSON-String
         status=random.choice(STATUS),
         bearbeiter=random.choice(BEARBEITER),
         wiedervorlage=wiedervorlage,
@@ -202,15 +197,17 @@ def main():
     
     # Datenbankverbindung herstellen
     try:
-        engine = create_engine(DATABASE_URL)
-        SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+        # Verwende die gleiche Engine wie das Backend
+        from database import engine, SessionLocal
         db = SessionLocal()
         
         print("✅ Datenbankverbindung erfolgreich")
     except Exception as e:
         print(f"❌ Fehler bei der Datenbankverbindung: {e}")
-        print("\n📝 Bitte passe die DATABASE_URL in der Datei an:")
-        print("DATABASE_URL = 'mysql+pymysql://username:password@localhost/database_name'")
+        print("\n📝 Stelle sicher, dass:")
+        print("1. Du im 'backend' Ordner bist")
+        print("2. Die .env Datei vorhanden ist")
+        print("3. Alle Backend-Dateien (database.py, models.py) vorhanden sind")
         return
     
     # Bestehende Einträge löschen (optional)
