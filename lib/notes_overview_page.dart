@@ -6,6 +6,7 @@ import 'api_service.dart';
 import 'dart:async';
 import 'websocket_manager.dart';
 import 'stress_test.dart';
+import 'note_cache_manager.dart';
 
 // für Datumsausgabe
 
@@ -264,6 +265,9 @@ class _NotesOverviewPageState extends State<NotesOverviewPage> {
       if (noteData != null) {
         final updatedNote = Note.fromJson(noteData);
         
+        // Aktualisiere auch den Cache
+        NoteCacheManager().updateNote(updatedNote);
+        
         setState(() {
           final index = allNotes.indexWhere((note) => note.id == updatedNote.id);
           if (index != -1) {
@@ -348,6 +352,10 @@ class _NotesOverviewPageState extends State<NotesOverviewPage> {
       print("🔄 Rufe apiService.updateNote auf...");
       final result = await apiService.updateNote(updated);
       print("🔄 updateNote erfolgreich abgeschlossen");
+      
+      // Aktualisiere auch den Cache
+      NoteCacheManager().updateNote(result);
+      
       setState(() {
         final index = allNotes.indexWhere((n) => n.id == result.id);
         if (index != -1) allNotes[index] = result;

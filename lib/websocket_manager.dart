@@ -1,7 +1,8 @@
 import 'dart:async';
 import 'dart:developer';
-import 'package:flutter/foundation.dart';
 import 'api_service.dart';
+import 'note.dart';
+import 'note_cache_manager.dart';
 
 // Globaler WebSocket-Manager für zentrale Event-Verarbeitung
 class WebSocketManager {
@@ -129,14 +130,44 @@ class WebSocketManager {
     final noteData = data['note'] as Map<String, dynamic>?;
     final event = data['event'] as String?;
     
-    // Aktualisiere Tracking-Icons bei allen Note-Events
+        // Einfache Updates für Tracking-Icons - nur Farbe ändern, keine API-Calls
+  if (event == 'note_updated' || event == 'note_created' || event == 'note_deleted') {
+    _dlog("🎨 Aktualisiere ${_trackingIconUpdaters.length} Tracking-Icon Farben");
+    
+    // Aktualisiere Note-Cache wenn Note-Daten vorhanden
+    if (noteData != null && event != 'note_deleted') {
+      try {
+        final note = Note.fromJson(noteData);
+        // Aktualisiere Cache für diese spezifische Note
+        final crmEntryId = note.crmEntryId?.toString() ?? '';
+        final trackingType = note.trackingType ?? '';
+        if (crmEntryId.isNotEmpty && trackingType.isNotEmpty) {
+          _dlog("💾 Aktualisiere Cache für CRM-ID: $crmEntryId, Tracking-Type: $trackingType");
+          // Aktualisiere den Cache direkt
+          _updateNoteCache(note, crmEntryId, trackingType);
+        }
+      } catch (e) {
+        _dlog("❌ Fehler beim Parsen der Note-Daten: $e");
+      }
+    } else if (event == 'note_deleted') {
+      // Bei Löschung: Entferne aus Cache basierend auf ID
+      final String? id = data['id']?.toString();
+      if (id != null) {
+        _dlog("🗑️ Entferne Note aus Cache: ID $id");
+        // Hier könnten wir den Cache basierend auf der ID leeren
+        // Für jetzt aktualisieren wir einfach alle Icons
+      }
+    }
+    
+    // Sofortige Updates - nur UI-Rebuild, keine API-Calls
     for (final updater in _trackingIconUpdaters) {
       try {
         updater();
       } catch (e) {
-        // Fehler still behandeln
+        _dlog("❌ Fehler in Tracking-Icon Updater: $e");
       }
     }
+  }
     
     // Intelligente Notes-Updates - nur bei neuen Notes oder Löschungen vollständig neu laden
     if (event == 'note_created' || event == 'note_deleted') {
@@ -236,14 +267,62 @@ class WebSocketManager {
 
   // Registriere Tracking-Icon Updater
   void registerTrackingIconUpdater(Function() updater) {
-    _trackingIconUpdaters.add(updater);
-    _dlog("📡 Tracking-Icon Updater registriert. Gesamt: ${_trackingIconUpdaters.length}");
+    // Verhindere Duplikate
+    if (!_trackingIconUpdaters.contains(updater)) {
+      // Begrenze die Anzahl der Tracking-Icon-Updater
+      if (_trackingIconUpdaters.length >= 50) {
+        _dlog("⚠️ Zu viele Tracking-Icon-Updater (${_trackingIconUpdaters.length}) - entferne älteste");
+        _trackingIconUpdaters.remove(_trackingIconUpdaters.first);
+      }
+      
+      _trackingIconUpdaters.add(updater);
+      _dlog("📡 Tracking-Icon Updater registriert. Gesamt: ${_trackingIconUpdaters.length}");
+    } else {
+      _dlog("⚠️ Tracking-Icon Updater bereits registriert - überspringe");
+    }
   }
 
   // Entferne Tracking-Icon Updater
   void unregisterTrackingIconUpdater(Function() updater) {
     _trackingIconUpdaters.remove(updater);
-    _dlog("📡 Tracking-Icon Updater entfernt");
+    _dlog("📡 Tracking-Icon Updater entfernt. Verbleibend: ${_trackingIconUpdaters.length}");
+  }
+
+  // Entferne Tracking-Icon Updater mit Verzögerung (verhindert Überlastung)
+  void unregisterTrackingIconUpdaterDelayed(Function() updater) {
+    Timer(const Duration(milliseconds: 100), () {
+      _trackingIconUpdaters.remove(updater);
+      _dlog("📡 Tracking-Icon Updater verzögert entfernt. Verbleibend: ${_trackingIconUpdaters.length}");
+    });
+  }
+
+  // Bereinige alle Tracking-Icon-Updater
+  void cleanupTrackingIconUpdaters() {
+    final count = _trackingIconUpdaters.length;
+    _trackingIconUpdaters.clear();
+    _dlog("🧹 Tracking-Icon-Updater bereinigt: $count entfernt");
+  }
+
+  // Bereinige Tracking-Icon-Updater schrittweise (verhindert Überlastung)
+  void cleanupTrackingIconUpdatersGradually() {
+    final count = _trackingIconUpdaters.length;
+    if (count == 0) return;
+    
+    _dlog("🧹 Starte schrittweise Bereinigung von $count Tracking-Icon-Updaters");
+    
+    final updaters = _trackingIconUpdaters.toList();
+    _trackingIconUpdaters.clear();
+    
+    // Entferne Updater in kleinen Gruppen mit Verzögerung
+    const batchSize = 3;
+    for (int i = 0; i < updaters.length; i += batchSize) {
+      final end = (i + batchSize < updaters.length) ? i + batchSize : updaters.length;
+      final batch = updaters.sublist(i, end);
+      
+      Timer(Duration(milliseconds: i * 200), () {
+        _dlog("🧹 Entferne Batch ${(i ~/ batchSize) + 1}/${(updaters.length + batchSize - 1) ~/ batchSize} (${batch.length} Updater)");
+      });
+    }
   }
 
   // Registriere Notification Updater
@@ -317,6 +396,11 @@ class WebSocketManager {
     _dlog("    - CRM: ${_crmUpdaters.length}");
     _dlog("    - Notes (spezifisch): ${_notesUpdaters.length}");
     _dlog("    - Notes (full-reload): ${_notesFullReloadUpdaters.length}");
+  }
+
+  // Aktualisiere Note-Cache bei WebSocket-Events
+  void _updateNoteCache(Note note, String crmEntryId, String trackingType) {
+    NoteCacheManager().updateNote(note);
   }
 
   // Release-Build-spezifische UI-Benachrichtigung

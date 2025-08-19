@@ -402,14 +402,13 @@ class ApiService {
             final listenersToNotify = List<void Function(Map<String, dynamic> data)>.from(_webSocketListeners);
             print("📡 Benachrichtige ${listenersToNotify.length} WebSocket-Listener");
             
-            for (var listener in listenersToNotify) {
-              try {
-                listener(data);
-              } catch (e) {
-                print("❌ Fehler in WebSocket-Listener: $e");
-                // Entferne fehlerhafte Listener
-                _webSocketListeners.remove(listener);
-              }
+            // Verzögere Verarbeitung bei vielen Listenern um WebSocket zu schonen
+            if (listenersToNotify.length > 15) {
+              Timer(const Duration(milliseconds: 100), () {
+                _processWebSocketListeners(listenersToNotify, data);
+              });
+            } else {
+              _processWebSocketListeners(listenersToNotify, data);
             }
           } catch (e) {
             print("❌ Fehler beim Parsen der WebSocket-Nachricht: $e");
@@ -421,19 +420,24 @@ class ApiService {
           print("❌ Fehler-Typ: ${error.runtimeType}");
           print("❌ Fehler-Details: $error");
           
-          // Spezifische Fehlerbehandlung
-          if (error.toString().contains('HTTP status code: 500')) {
+          // Erweiterte Fehlerbehandlung für Verbindungsabbrüche
+          final errorString = error.toString().toLowerCase();
+          if (errorString.contains('http status code: 500')) {
             print("⚠️ Server-Problem erkannt. Versuche später erneut...");
-          } else if (error.toString().contains('Connection refused')) {
+          } else if (errorString.contains('connection refused')) {
             print("⚠️ Verbindung verweigert. Server möglicherweise nicht erreichbar.");
-          } else if (error.toString().contains('HandshakeException')) {
+          } else if (errorString.contains('handshakeexception')) {
             print("⚠️ Handshake-Fehler. Möglicherweise SSL/TLS-Problem.");
-          } else if (error.toString().contains('SocketException')) {
+          } else if (errorString.contains('socketexception')) {
             print("⚠️ Socket-Fehler. Netzwerk-Problem.");
-          } else if (error.toString().contains('WebSocketException')) {
+          } else if (errorString.contains('websocketexception')) {
             print("⚠️ WebSocket-spezifischer Fehler.");
-          } else if (error.toString().contains('timeout')) {
+          } else if (errorString.contains('timeout')) {
             print("⚠️ Timeout-Fehler. Verbindung zu langsam.");
+          } else if (errorString.contains('closed') || errorString.contains('disconnect')) {
+            print("⚠️ Verbindung geschlossen. Möglicherweise durch Server-Update.");
+          } else {
+            print("⚠️ Unbekannter WebSocket-Fehler. Versuche Reconnect...");
           }
           
           // Benachrichtige alle Error-Listener mit robusterer Fehlerbehandlung
@@ -452,18 +456,28 @@ class ApiService {
           
           _cleanupWebSocket();
           
-          // Automatischer Reconnect nach Fehler
+          // Sofortiger Reconnect bei allen Fehlern
           if (enableReconnect) {
+            print("🔄 Starte sofortigen Reconnect nach WebSocket-Fehler...");
             _scheduleReconnect();
           }
         },
         onDone: () {
           print("🔌 WebSocket Verbindung geschlossen.");
+          print("🔍 Verbindungsabbruch-Analyse:");
+          print("  - Aktive Listener: ${_webSocketListeners.length}");
+          print("  - Error-Listener: ${_webSocketErrorListeners.length}");
+          print("  - Reconnect aktiviert: $enableReconnect");
+          print("  - Reconnect-Versuche: $_reconnectAttempts");
+          
           _cleanupWebSocket();
           
-          // Automatischer Reconnect nach Verbindungsende
+          // Sofortiger Reconnect nach Verbindungsende
           if (enableReconnect) {
+            print("🔄 Starte sofortigen Reconnect nach Verbindungsende...");
             _scheduleReconnect();
+          } else {
+            print("⚠️ Reconnect deaktiviert - Verbindung bleibt geschlossen");
           }
         },
         cancelOnError: false,
@@ -570,6 +584,11 @@ class ApiService {
   }
 
   void _scheduleReconnect() {
+    if (_isConnecting || _isDisconnecting) {
+      print("⚠️ Reconnect bereits in Bearbeitung - überspringe");
+      return;
+    }
+    
     if (_reconnectAttempts >= _maxReconnectAttempts) {
       print("❌ Maximale Reconnect-Versuche erreicht. Stoppe automatische Verbindungsversuche.");
       return;
@@ -583,9 +602,13 @@ class ApiService {
     _reconnectAttempts++;
     final isReleaseMode = const bool.fromEnvironment('dart.vm.product');
     
-    // Angepasste Reconnect-Verzögerung für Release-Modus
+    // Sofortiger Reconnect bei ersten Versuchen, dann exponentieller Backoff
     int delaySeconds;
-    if (isReleaseMode) {
+    if (_reconnectAttempts <= 2) {
+      // Erste Versuche: Sofort oder kurze Verzögerung
+      delaySeconds = _reconnectAttempts == 1 ? 1 : 2;
+      print("🔧 Sofortiger Reconnect für Versuch $_reconnectAttempts");
+    } else if (isReleaseMode) {
       // Release-Modus: Längere Verzögerungen für stabilere Verbindung
       delaySeconds = _reconnectAttempts * 3; // 3, 6, 9, 12, 15 Sekunden
       print("🔧 Release-Modus: Verwende längere Reconnect-Verzögerungen");
@@ -598,10 +621,14 @@ class ApiService {
     
     print("🔄 Plane Reconnect in ${delay.inSeconds} Sekunden (Versuch $_reconnectAttempts/$_maxReconnectAttempts)");
     print("🔧 Build-Modus: ${isReleaseMode ? 'Release' : 'Debug'}");
+    print("🔍 Reconnect-Status:");
+    print("  - Aktive Listener: ${_webSocketListeners.length}");
+    print("  - Error-Listener: ${_webSocketErrorListeners.length}");
+    print("  - Reconnect aktiviert: true (automatisch bei Reconnect)");
     
     _reconnectTimer?.cancel();
     _reconnectTimer = Timer(delay, () {
-      if (_channel == null && _accessToken != null && _webSocketListeners.isNotEmpty && !_isDisconnecting) {
+      if (_channel == null && _accessToken != null && _webSocketListeners.isNotEmpty && !_isDisconnecting && !_isConnecting) {
         print("🔄 Führe Reconnect durch...");
         print("🔧 Aktive Listener: ${_webSocketListeners.length}");
         _connectToWebSocket(enableReconnect: true);
@@ -611,6 +638,7 @@ class ApiService {
         print("  - AccessToken vorhanden: ${_accessToken != null}");
         print("  - Listener vorhanden: ${_webSocketListeners.isNotEmpty}");
         print("  - Nicht beim Trennen: ${!_isDisconnecting}");
+        print("  - Nicht beim Verbinden: ${!_isConnecting}");
       }
     });
   }
@@ -624,6 +652,19 @@ class ApiService {
     _stopAutoReconnectMonitoring(); // Stoppe Auto-Reconnect-Monitoring
     _cleanupWebSocket();
     _isDisconnecting = false;
+  }
+
+  // Hilfsmethode zur verzögerten Verarbeitung von WebSocket-Listenern
+  void _processWebSocketListeners(List<void Function(Map<String, dynamic> data)> listeners, Map<String, dynamic> data) {
+    for (var listener in listeners) {
+      try {
+        listener(data);
+      } catch (e) {
+        print("❌ Fehler in WebSocket-Listener: $e");
+        // Entferne fehlerhafte Listener
+        _webSocketListeners.remove(listener);
+      }
+    }
   }
 
   // Hilfsmethode zum Testen der WebSocket-Verbindung

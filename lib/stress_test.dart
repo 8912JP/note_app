@@ -18,7 +18,7 @@ class StressTest {
   int _totalUpdates = 0;
   int _successfulUpdates = 0;
   int _failedUpdates = 0;
-  List<String> _errors = [];
+  final List<String> _errors = [];
   
   // Callback für UI-Updates
   Function(String message)? onStatusUpdate;

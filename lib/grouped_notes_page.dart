@@ -22,7 +22,7 @@ class _GroupedNotesPageState extends State<GroupedNotesPage> {
   String _selectedStatus = "all";
   DateTimeRange? _selectedDateRange;
   List<String> _selectedLabelsFilter = [];
-  bool _wsListenerAdded = false;
+  final bool _wsListenerAdded = false;
 
   @override
   void initState() {

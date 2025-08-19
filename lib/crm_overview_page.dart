@@ -8,6 +8,7 @@ import 'crm_entry_edit_form.dart';
 import 'form_page.dart';
 import 'note.dart';
 import 'websocket_manager.dart';
+import 'note_cache_manager.dart';
 
 class CrmEntryProvider extends ChangeNotifier {
   List<CrmEntry> _entries = [];
@@ -687,8 +688,17 @@ final Set<_TrackingIconState> _activeTrackingIcons = <_TrackingIconState>{};
 void _updateAllTrackingIcons() {
   for (final icon in _activeTrackingIcons) {
     if (icon.mounted && !icon._disposed) {
-      icon._fetchNote();
+      icon._updateIcon();
     }
+  }
+}
+
+// Aktualisiere Note-Cache bei WebSocket-Events
+void _updateNoteCache(Note? note, String crmEntryId, String trackingType) {
+  if (note != null) {
+    NoteCacheManager().updateNote(note);
+  } else {
+    NoteCacheManager().removeNote(crmEntryId, trackingType);
   }
 }
 
@@ -725,12 +735,14 @@ class _TrackingIconState extends State<_TrackingIcon> {
   @override
   void initState() {
     super.initState();
-    _fetchNote();
     _activeTrackingIcons.add(this);
     
-    // Initialisiere WebSocket-Manager und registriere Tracking-Icon Updater
+    // Initialisiere WebSocket-Manager und registriere einfachen Updater
     WebSocketManager().initialize();
-    WebSocketManager().registerTrackingIconUpdater(_fetchNote);
+    WebSocketManager().registerTrackingIconUpdater(_updateIcon);
+    
+    // Lade initial Note-Status
+    _loadNoteStatus();
     
     // Debug: Zeige WebSocket-Status für Tracking-Icon
     print("🔍 Tracking-Icon initialisiert für ${widget.trackingType} (CRM-ID: ${widget.crmEntryId})");
@@ -741,14 +753,31 @@ class _TrackingIconState extends State<_TrackingIcon> {
     _disposed = true;
     _activeTrackingIcons.remove(this);
     
-    // Entferne vom WebSocket-Manager
-    WebSocketManager().unregisterTrackingIconUpdater(_fetchNote);
+    // Verwende verzögerte Entfernung um WebSocket-Überlastung zu vermeiden
+    WebSocketManager().unregisterTrackingIconUpdaterDelayed(_updateIcon);
     
     super.dispose();
   }
 
-  Future<void> _fetchNote() async {
+  // Einfache Methode zum Aktualisieren der Icon-Farbe
+  void _updateIcon() {
     if (!mounted || _disposed) return;
+    // Verwende Cache-Wert vom NoteCacheManager
+    _note = NoteCacheManager().getNote(widget.crmEntryId, widget.trackingType);
+    setState(() {}); // Trigger Rebuild - Farbe wird automatisch neu berechnet
+  }
+
+  // Lade Note-Status nur einmal beim Start
+  Future<void> _loadNoteStatus() async {
+    if (!mounted || _disposed) return;
+    
+    // Prüfe zuerst Cache
+    if (NoteCacheManager().hasNote(widget.crmEntryId, widget.trackingType)) {
+      _note = NoteCacheManager().getNote(widget.crmEntryId, widget.trackingType);
+      setState(() {});
+      return;
+    }
+    
     setState(() => _loading = true);
     try {
       final notes = await ApiService().fetchNotes();
@@ -760,6 +789,12 @@ class _TrackingIconState extends State<_TrackingIcon> {
       } catch (_) {
         note = null;
       }
+      
+      // Speichere in Cache
+      if (note != null) {
+        NoteCacheManager().updateNote(note);
+      }
+      
       if (mounted && !_disposed) setState(() => _note = note);
     } catch (_) {
       if (mounted && !_disposed) setState(() => _note = null);
@@ -790,7 +825,7 @@ class _TrackingIconState extends State<_TrackingIcon> {
       );
       if (result != null) {
         // Nach Rückkehr immer neu laden, damit Status/Farbe stimmt
-        await _fetchNote();
+        await _loadNoteStatus();
       }
     } else {
       // Notiz bearbeiten
@@ -805,7 +840,7 @@ class _TrackingIconState extends State<_TrackingIcon> {
       );
       if (result != null) {
         // Nach Rückkehr immer neu laden, damit Status/Farbe stimmt
-        await _fetchNote();
+        await _loadNoteStatus();
       }
     }
   }

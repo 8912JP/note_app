@@ -7,6 +7,7 @@ import 'crm_overview_page.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'statistik_page.dart';
 import 'notification_indicator.dart';
+import 'websocket_manager.dart';
 
 class NotesHomePage extends StatefulWidget {
   final ApiService apiService;
@@ -47,6 +48,8 @@ class _NotesHomePageState extends State<NotesHomePage> with SingleTickerProvider
           break;
         case 2: // CRM
           widget.apiService.notificationService.markCrmAsSeen();
+          // Bereinige Tracking-Icon-Updater schrittweise beim Wechsel zur CRM-Seite
+          WebSocketManager().cleanupTrackingIconUpdatersGradually();
           break;
       }
     }
