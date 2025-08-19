@@ -52,10 +52,19 @@ class WebSocketManager {
     
     // Release-spezifische Optimierungen
     if (isReleaseMode) {
-      // In Release keine Logs spammen
+      _dlog("🔧 Release-Modus: Aktiviere erweiterte WebSocket-Optimierungen");
+      
       // Teste die Verbindung nach kurzer Verzögerung
       Timer(const Duration(seconds: 2), () {
         testWebSocketConnection();
+      });
+      
+      // Zusätzliche Verbindungsvalidierung für Release-Builds
+      Timer(const Duration(seconds: 10), () {
+        if (!_apiService.isWebSocketConnected()) {
+          _dlog("⚠️ Release-Modus: WebSocket nicht verbunden nach 10s - versuche Reconnect");
+          _apiService.forceReconnect();
+        }
       });
     }
   }
@@ -77,6 +86,12 @@ class WebSocketManager {
     try {
       final event = data['event'] as String?;
       if (event == null) return;
+
+      // Release-Modus: Zeige UI-Benachrichtigung für WebSocket-Events
+      final isReleaseMode = const bool.fromEnvironment('dart.vm.product');
+      if (isReleaseMode) {
+        _dlog("📥 Release-Modus: WebSocket-Event empfangen: $event");
+      }
 
       // Verarbeite Event für Notifications
       _apiService.notificationService.handleWebSocketEvent(data);
@@ -302,5 +317,14 @@ class WebSocketManager {
     _dlog("    - CRM: ${_crmUpdaters.length}");
     _dlog("    - Notes (spezifisch): ${_notesUpdaters.length}");
     _dlog("    - Notes (full-reload): ${_notesFullReloadUpdaters.length}");
+  }
+
+  // Release-Build-spezifische UI-Benachrichtigung
+  void showReleaseNotification(String message) {
+    final isReleaseMode = const bool.fromEnvironment('dart.vm.product');
+    if (isReleaseMode) {
+      // In Release-Builds: Zeige SnackBar oder andere UI-Benachrichtigung
+      _dlog("🔔 Release-Benachrichtigung: $message");
+    }
   }
 }

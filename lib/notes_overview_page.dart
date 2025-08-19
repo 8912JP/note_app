@@ -5,6 +5,7 @@ import 'form_page.dart';
 import 'api_service.dart';
 import 'dart:async';
 import 'websocket_manager.dart';
+import 'stress_test.dart';
 
 // für Datumsausgabe
 
@@ -269,6 +270,18 @@ class _NotesOverviewPageState extends State<NotesOverviewPage> {
             // Aktualisiere bestehende Note
             allNotes[index] = updatedNote;
             print("✅ Note aktualisiert: ${updatedNote.id}");
+            
+            // Release-Build: Zeige SnackBar-Benachrichtigung
+            final isReleaseMode = const bool.fromEnvironment('dart.vm.product');
+            if (isReleaseMode) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Note aktualisiert: ${updatedNote.firstName} ${updatedNote.lastName}'),
+                  duration: Duration(seconds: 2),
+                  backgroundColor: Colors.green,
+                ),
+              );
+            }
           } else {
             // Füge neue Note hinzu (falls sie nicht bereits vorhanden ist)
             allNotes.add(updatedNote);
@@ -530,6 +543,7 @@ class _NotesOverviewPageState extends State<NotesOverviewPage> {
     final isConnected = apiService.isWebSocketConnected();
     final listenerCount = apiService.getWebSocketListenerCount();
     final errorListenerCount = apiService.getWebSocketErrorListenerCount();
+    final stressTest = StressTest();
 
     showDialog(
       context: context,
@@ -632,7 +646,118 @@ class _NotesOverviewPageState extends State<NotesOverviewPage> {
             onPressed: () => Navigator.pop(context),
             child: const Text('Schließen'),
           ),
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              _showStressTestDialog(stressTest);
+            },
+            child: const Text('Stresstest'),
+          ),
         ],
+      ),
+    );
+  }
+
+  void _showStressTestDialog(StressTest stressTest) {
+    String logOutput = "";
+    bool isRunning = false;
+    
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) => AlertDialog(
+          title: const Text('Stresstest'),
+          content: SizedBox(
+            width: double.maxFinite,
+            height: 400,
+            child: Column(
+              children: [
+                Expanded(
+                  child: SingleChildScrollView(
+                    child: Text(
+                      logOutput.isEmpty ? "Klicken Sie 'Start' um den Stresstest zu beginnen..." : logOutput,
+                      style: TextStyle(fontFamily: 'monospace', fontSize: 12),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    ElevatedButton(
+                      onPressed: isRunning ? null : () async {
+                        setState(() {
+                          isRunning = true;
+                          logOutput = "";
+                        });
+                        
+                        stressTest.startStressTest(
+                          duration: 30,
+                          updateInterval: 2,
+                          maxConcurrent: 3,
+                          statusCallback: (message) {
+                            setState(() {
+                              logOutput += "$message\n";
+                            });
+                          },
+                          completeCallback: (stats) {
+                            setState(() {
+                              isRunning = false;
+                              logOutput += "\n🏁 TEST BEENDET\n";
+                              logOutput += "📊 Erfolgsrate: ${stats['successRate']}%\n";
+                              logOutput += "📊 Gesamt-Updates: ${stats['totalUpdates']}\n";
+                              logOutput += "✅ Erfolgreich: ${stats['successfulUpdates']}\n";
+                              logOutput += "❌ Fehlgeschlagen: ${stats['failedUpdates']}\n";
+                            });
+                          },
+                        );
+                      },
+                      child: const Text('Start (30s)'),
+                    ),
+                    ElevatedButton(
+                      onPressed: isRunning ? null : () async {
+                        setState(() {
+                          isRunning = true;
+                          logOutput = "";
+                        });
+                        
+                        stressTest.runFullStressTest();
+                        
+                        // Stoppe nach 60 Sekunden
+                        Timer(Duration(seconds: 60), () {
+                          if (mounted) {
+                            setState(() {
+                              isRunning = false;
+                              logOutput += "\n🏁 VOLLSTÄNDIGER TEST BEENDET\n";
+                            });
+                          }
+                        });
+                      },
+                      child: const Text('Vollständig'),
+                    ),
+                    ElevatedButton(
+                      onPressed: isRunning ? null : () {
+                        stressTest.stopStressTest();
+                        setState(() {
+                          isRunning = false;
+                          logOutput += "\n⏹️ TEST GESTOPPT\n";
+                        });
+                      },
+                      child: const Text('Stop'),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Schließen'),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -672,6 +797,20 @@ class _NotesOverviewPageState extends State<NotesOverviewPage> {
           ),
         ),
         actions: [
+          // Aktueller Benutzer
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8.0),
+            child: Center(
+              child: Text(
+                apiService.loggedInUser ?? 'Nicht eingeloggt',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                  color: Colors.white70,
+                ),
+              ),
+            ),
+          ),
           // Debug-Button für WebSocket-Status
           IconButton(
             icon: Icon(Icons.bug_report),

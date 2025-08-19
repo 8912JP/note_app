@@ -1357,6 +1357,20 @@ class _StatistikPageState extends State<StatistikPage> {
       appBar: AppBar(
         title: const Text('Statistik'),
         actions: [
+          // Aktueller Benutzer
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8.0),
+            child: Center(
+              child: Text(
+                widget.apiService.loggedInUser ?? 'Nicht eingeloggt',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                  color: Colors.white70,
+                ),
+              ),
+            ),
+          ),
           IconButton(
             icon: const Icon(Icons.download),
             tooltip: 'Excel-Export',

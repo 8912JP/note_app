@@ -306,6 +306,20 @@ class _GroupedNotesPageState extends State<GroupedNotesPage> {
       appBar: AppBar(
         title: const Text('Notizen (Gruppiert)'),
         actions: [
+          // Aktueller Benutzer
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8.0),
+            child: Center(
+              child: Text(
+                apiService.loggedInUser ?? 'Nicht eingeloggt',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                  color: Colors.white70,
+                ),
+              ),
+            ),
+          ),
           IconButton(icon: const Icon(Icons.filter_list), onPressed: _showFilterDialog),
         ],
         bottom: PreferredSize(

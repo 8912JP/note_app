@@ -335,10 +335,9 @@ class ApiService {
       final isReleaseMode = const bool.fromEnvironment('dart.vm.product');
       
       if (baseUrl.startsWith('https')) {
-        // Verwende immer die gleiche URL für Debug und Release
-        // Der Proxy sollte in beiden Modi funktionieren
+        // Beide Builds verwenden die gleiche Proxy-URL
         wsUrl = 'wss://iqmedix.cloud/ws/notes?token=$_accessToken';
-        print("🔌 Verwende WebSocket-URL: $wsUrl");
+        print("🔧 ${isReleaseMode ? 'Release' : 'Debug'}-Modus: Verwende Proxy-WebSocket-URL: $wsUrl");
       } else {
         wsUrl = 'ws://iqmedix.cloud/ws/notes?token=$_accessToken';
       }
@@ -362,24 +361,19 @@ class ApiService {
       print("🔌 Parsed URI: $uri");
       _channel = WebSocketChannel.connect(uri);
 
-      // Release-spezifische Heartbeat-Konfiguration
+      // Heartbeat-Konfiguration (gleich für beide Builds)
       _wsHeartbeatTimer?.cancel();
-      int heartbeatInterval;
-      if (isReleaseMode) {
-        // Release-Modus: Häufigere Heartbeats für stabilere Verbindung
-        heartbeatInterval = 8; // 8 Sekunden statt 10
-        print("🔧 Release-Modus: Verwende häufigeren Heartbeat (8s)");
-      } else {
-        // Debug-Modus: Normale Heartbeats
-        heartbeatInterval = 10;
-        print("🔧 Debug-Modus: Verwende normalen Heartbeat (10s)");
-      }
+      const heartbeatInterval = 10; // 10 Sekunden für beide Builds
+      print("🔧 Heartbeat-Intervall: ${heartbeatInterval}s");
       
       _wsHeartbeatTimer = Timer.periodic(Duration(seconds: heartbeatInterval), (_) {
         try {
           if (_channel != null && !_isDisconnecting) {
             _channel?.sink.add('{"type":"ping","timestamp":"${DateTime.now().toIso8601String()}"}');
-            print("↪️ WS ping gesendet - ${DateTime.now().toIso8601String()}");
+            // Nur in Debug-Modus Heartbeat-Logs ausgeben
+            if (!isReleaseMode) {
+              print("↪️ WS ping gesendet - ${DateTime.now().toIso8601String()}");
+            }
           }
         } catch (e) {
           print("❌ Fehler beim Senden des Heartbeats: $e");
@@ -398,6 +392,7 @@ class ApiService {
         (message) {
           try {
             final data = json.decode(message);
+            // WebSocket-Nachrichten in beiden Builds loggen (wichtig für Debugging)
             print("📥 WebSocket Nachricht empfangen: $data");
             
             // Verarbeite Event für Notifications
@@ -405,6 +400,8 @@ class ApiService {
             
             // Benachrichtige alle Listener mit robusterer Fehlerbehandlung
             final listenersToNotify = List<void Function(Map<String, dynamic> data)>.from(_webSocketListeners);
+            print("📡 Benachrichtige ${listenersToNotify.length} WebSocket-Listener");
+            
             for (var listener in listenersToNotify) {
               try {
                 listener(data);
@@ -681,92 +678,24 @@ class ApiService {
     print("🔍 Build-Modus: ${isReleaseMode ? 'Release' : 'Debug'}");
     
     try {
-      // Teste verschiedene WebSocket-URLs basierend auf Build-Modus
-      final testUrls = [
-        'wss://iqmedix.cloud/ws/notes?token=$_accessToken',
-        'wss://iqmedix.cloud:8443/ws/notes?token=$_accessToken',
-        'wss://iqmedix.cloud/api/ws/notes?token=$_accessToken',
-      ];
-
-      for (int i = 0; i < testUrls.length; i++) {
-        final testUrl = testUrls[i];
-        print("🧪 Teste URL ${i + 1}: $testUrl");
-        
-        try {
-          final testChannel = WebSocketChannel.connect(Uri.parse(testUrl));
-          
-          // Warte auf Verbindung oder Timeout
-          bool connected = false;
-          bool receivedPong = false;
-          Timer? timeoutTimer;
-          
-          timeoutTimer = Timer(Duration(seconds: 10), () {
-            if (!connected) {
-              print("⏰ Timeout für URL ${i + 1}");
-              testChannel.sink.close();
-            }
-          });
-          
-          testChannel.stream.listen(
-            (message) {
-              connected = true;
-              print("📥 Test-Nachricht empfangen: $message");
-              
-              // Prüfe ob es eine Pong-Nachricht ist
-              if (message is String && message.contains('"type":"pong"')) {
-                receivedPong = true;
-                print("✅ Pong-Nachricht empfangen - Verbindung funktioniert!");
-              }
-              
-              // Schließe Test-Verbindung nach erfolgreicher Nachricht
-              timeoutTimer?.cancel();
-              testChannel.sink.close();
-            },
-            onError: (error) {
-              timeoutTimer?.cancel();
-              print("❌ WebSocket-Test fehlgeschlagen für URL ${i + 1}: $error");
-              print("❌ Fehler-Typ: ${error.runtimeType}");
-            },
-            onDone: () {
-              timeoutTimer?.cancel();
-              if (connected) {
-                print("✅ WebSocket-Test abgeschlossen für URL ${i + 1}");
-              }
-            },
-          );
-          
-          // Sende Ping-Nachricht nach kurzer Verzögerung
-          Timer(Duration(milliseconds: 500), () {
-            if (!connected) {
-              testChannel.sink.add('{"type":"ping","timestamp":"${DateTime.now().toIso8601String()}"}');
-              print("↪️ Ping-Nachricht gesendet für Test");
-            }
-          });
-          
-          // Warte auf Ergebnis
-          await Future.delayed(Duration(seconds: 12));
-          
-          if (connected && receivedPong) {
-            print("✅ Beste WebSocket-URL gefunden: $testUrl");
-            return true;
-          } else if (connected) {
-            print("⚠️ Verbindung hergestellt, aber kein Pong empfangen für URL ${i + 1}");
-          }
-          
-        } catch (e) {
-          print("❌ Fehler beim Testen von URL ${i + 1}: $e");
-          print("❌ Fehler-Typ: ${e.runtimeType}");
-        }
+      if (!isWebSocketConnected()) {
+        print("❌ WebSocket nicht verbunden");
+        return false;
       }
       
-      print("❌ Keine funktionierende WebSocket-URL gefunden");
-      return false;
+      print("✅ WebSocket verbunden");
       
+      // Teste Broadcast zwischen Builds
+      await testServerBroadcast();
+      
+      return true;
     } catch (e) {
       print("❌ WebSocket-Test fehlgeschlagen: $e");
       return false;
     }
   }
+
+
 
   // Test-Broadcast vom Server anfordern
   Future<bool> testServerBroadcast() async {
