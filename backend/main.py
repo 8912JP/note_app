@@ -18,9 +18,27 @@ from grouping import group_notes
 from schemas import NoteOut
 from schemas import CrmEntryCreate, CrmEntryOut, CrmEntryUpdate
 import uuid
+from scheduler import start_email_scheduler, stop_email_scheduler, get_scheduler_status
 
 app = FastAPI()
 Base.metadata.create_all(bind=engine)
+
+# Globale Variable für Scheduler-Status
+scheduler_initialized = False
+
+def initialize_scheduler():
+    """Initialisiert den Email-Scheduler"""
+    global scheduler_initialized
+    if not scheduler_initialized:
+        try:
+            start_email_scheduler()
+            scheduler_initialized = True
+            print("✅ Email-Scheduler erfolgreich initialisiert")
+        except Exception as e:
+            print(f"❌ Fehler beim Initialisieren des Email-Schedulers: {e}")
+
+# Initialisiere Scheduler beim Import (wird bei Gunicorn ausgeführt)
+initialize_scheduler()
 
 app.add_middleware(
     CORSMiddleware,
@@ -359,10 +377,12 @@ async def broadcast_crm_update(data: dict):
     print(f"📊 Verbleibende CRM WebSocket-Clients nach Broadcast: {len(crm_clients)}")
 
 @app.get("/api/crm/", response_model=List[CrmEntryOut])
-def get_crm_entries(db: Session = Depends(get_db)):
+@app.get("/crm/", response_model=List[CrmEntryOut])
+def get_crm_entries(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     return crud.get_all_crm_entries(db)
 
 @app.post("/api/crm/", response_model=CrmEntryOut, status_code=201)
+@app.post("/crm/", response_model=CrmEntryOut, status_code=201)
 async def create_crm_entry(entry: CrmEntryCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     created = crud.create_crm_entry(db, entry)
     await broadcast_crm_update({"event": "crm_created", "id": created.id})
@@ -376,6 +396,7 @@ async def create_crm_entry(entry: CrmEntryCreate, db: Session = Depends(get_db),
     return created
 
 @app.put("/api/crm/{entry_id}", response_model=CrmEntryOut)
+@app.put("/crm/{entry_id}", response_model=CrmEntryOut)
 async def update_crm_entry(entry_id: str, entry: CrmEntryUpdate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     updated = crud.update_crm_entry(db, entry_id, entry)
     await broadcast_crm_update({"event": "crm_updated", "id": entry_id})
@@ -389,6 +410,7 @@ async def update_crm_entry(entry_id: str, entry: CrmEntryUpdate, db: Session = D
     return updated
 
 @app.delete("/api/crm/{entry_id}", status_code=204)
+@app.delete("/crm/{entry_id}", status_code=204)
 async def delete_crm_entry(entry_id: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     if not crud.delete_crm_entry(db, entry_id):
         raise HTTPException(status_code=404, detail="CRM-Eintrag nicht gefunden")
@@ -462,7 +484,6 @@ async def debug_broadcast_api():
         "message": "Test-Broadcast vom Server",
         "timestamp": str(datetime.now())
     }
-    print(f"🧪 Manueller Broadcast-Test (API): {test_data}")
     print(f"📊 Aktuelle Clients vor Test-Broadcast: {len(clients)}")
     await broadcast_update(test_data)
     return {"message": "Test-Broadcast gesendet", "data": test_data, "clients_count": len(clients)}
@@ -497,3 +518,41 @@ async def test_websocket_connection():
         "successful_sends": success_count,
         "test_message": test_message
     }
+
+# Email Scheduler Endpoints
+@app.post("/api/scheduler/start")
+def start_scheduler():
+    """Startet den Email-Scheduler"""
+    try:
+        start_email_scheduler()
+        return {"message": "Email-Scheduler gestartet", "status": "running"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Fehler beim Starten des Schedulers: {str(e)}")
+
+@app.post("/api/scheduler/stop")
+def stop_scheduler():
+    """Stoppt den Email-Scheduler"""
+    try:
+        stop_email_scheduler()
+        return {"message": "Email-Scheduler gestoppt", "status": "stopped"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Fehler beim Stoppen des Schedulers: {str(e)}")
+
+@app.get("/api/scheduler/status")
+def scheduler_status():
+    """Gibt den Status des Email-Schedulers zurück"""
+    try:
+        status = get_scheduler_status()
+        return {"status": status, "message": "Scheduler ist initialisiert."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Fehler beim Abrufen des Scheduler-Status: {str(e)}")
+
+@app.post("/api/scheduler/trigger-email-fetch")
+async def trigger_email_fetch():
+    """Manueller Trigger für Email-Abruf"""
+    try:
+        from email_service import fetch_and_process_emails
+        fetch_and_process_emails()
+        return {"message": "Email-Abruf manuell ausgelöst und erfolgreich abgeschlossen"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Fehler beim manuellen Email-Abruf: {str(e)}")

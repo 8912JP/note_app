@@ -18,7 +18,7 @@ ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 1440  # Zeit die nach der man sich wieder anmelden muss
 
 # FastAPI OAuth2-Scheme für REST-Endpunkte
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/token", auto_error=False)
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/token", auto_error=True)
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
@@ -70,6 +70,7 @@ def get_current_user(
         detail="Token ungültig oder abgelaufen",
         headers={"WWW-Authenticate": "Bearer"},
     )
+    
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         username: str = payload.get("sub")

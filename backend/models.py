@@ -87,3 +87,6 @@ class CrmEntry(Base):
     ort = Column(String(100), nullable=True)
     land = Column(String(100), nullable=True)
     rolle = Column(String(100), nullable=True)
+    rabatt = Column(String(100), nullable=True)  # Neues Feld für Rabatt
+    krankenversicherung = Column(String(100), nullable=True)  # Neues Feld für Krankenversicherung
+    test = Column(String(100), nullable=True)  # Neues Feld für Test (iPrevent, iSelect, etc.)

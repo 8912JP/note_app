@@ -37,12 +37,15 @@ class _CrmEntryEditFormState extends State<CrmEntryEditForm> {
   final _nachrichtController = TextEditingController();
   final _infosController = TextEditingController();
   final _anfrageDatumController = TextEditingController();
+  final _rabattController = TextEditingController();
+  final _krankenversicherungController = TextEditingController();
   String? _rolle;
 
   String? _status;
   String? _kontaktquelle;
   String? _nachricht;
   String? _infos;
+  String? _test;
 
   final List<ToDoItem> _todoItems = [];
   final _todoController = TextEditingController();
@@ -51,6 +54,7 @@ class _CrmEntryEditFormState extends State<CrmEntryEditForm> {
   final List<String> _statusOptions = ['', 'Offen', 'nicht Einsender', 'Einsender'];
   final List<String> _kontaktquelleOptions = ['', 'E-Mail', 'Telefon', 'Empfehlung', 'Internet organisch', 'QS24', 'Sales Rakete', 'Facebook', 'Messe'];
   final List<String> _rolleOptions = ['Arzt', 'Heilpraktiker', 'Patient', 'Sonstiges'];
+  final List<String> _testOptions = ['', 'iPrevent', 'iSelect', 'iComplete', 'RNAseq', 'Sonstiges'];
 
   @override
   void initState() {
@@ -92,6 +96,10 @@ class _CrmEntryEditFormState extends State<CrmEntryEditForm> {
           : '';
       _rolle = entry.rolle;
       if (!_rolleOptions.contains(_rolle)) _rolle = null;
+      _rabattController.text = entry.rabatt ?? '';
+      _krankenversicherungController.text = entry.krankenversicherung ?? '';
+      _test = entry.test;
+      if (!_testOptions.contains(_test)) _test = null;
     } else {
       // Default-Wert für neue Einträge
       _landController.text = 'Deutschland';
@@ -155,6 +163,9 @@ class _CrmEntryEditFormState extends State<CrmEntryEditForm> {
         nachricht: _nachrichtController.text,
         infos: _infosController.text,
         rolle: _rolle,
+        rabatt: _rabattController.text,
+        krankenversicherung: _krankenversicherungController.text,
+        test: _test,
       );
 
       // Zeige Lade-Indikator
@@ -229,6 +240,8 @@ class _CrmEntryEditFormState extends State<CrmEntryEditForm> {
     _nachrichtController.dispose();
     _infosController.dispose();
     _anfrageDatumController.dispose();
+    _rabattController.dispose();
+    _krankenversicherungController.dispose();
     super.dispose();
   }
 
@@ -240,11 +253,10 @@ class _CrmEntryEditFormState extends State<CrmEntryEditForm> {
         padding: const EdgeInsets.all(16),
         child: Form(
           key: _formKey,
-          child: Wrap(
-            spacing: 16,
-            runSpacing: 16,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Anfragedatum-Feld (über Anrede/Titel)
+              // ===== ANFRAGEDATUM =====
               TextFormField(
                 controller: _anfrageDatumController,
                 decoration: const InputDecoration(
@@ -271,71 +283,345 @@ class _CrmEntryEditFormState extends State<CrmEntryEditForm> {
                   }
                 },
               ),
-              DropdownButtonFormField<String>(
-                decoration: const InputDecoration(labelText: 'Anrede / Titel'),
-                items: _titelOptions.map((t) => DropdownMenuItem(value: t, child: Text(t))).toList(),
-                value: _titel,
-                onChanged: (val) => setState(() => _titel = val),
+              
+              const SizedBox(height: 24),
+              
+              // ===== KONTAKTDATEN =====
+              const Text(
+                'Kontaktdaten',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.blue,
+                ),
               ),
-              TextFormField(controller: _vornameController, decoration: const InputDecoration(labelText: 'Vorname')),
-              TextFormField(controller: _nachnameController, decoration: const InputDecoration(labelText: 'Nachname')),
-              TextFormField(controller: _strasseController, decoration: const InputDecoration(labelText: 'Straße')),
-              TextFormField(controller: _hausnummerController, decoration: const InputDecoration(labelText: 'Hausnummer')),
-              TextFormField(controller: _plzController, decoration: const InputDecoration(labelText: 'PLZ')),
-              TextFormField(controller: _ortController, decoration: const InputDecoration(labelText: 'Ort')),
-              TextFormField(controller: _landController, decoration: const InputDecoration(labelText: 'Land')),
-              TextFormField(controller: _emailController, decoration: const InputDecoration(labelText: 'E-Mail')),
-              TextFormField(controller: _mobilController, decoration: const InputDecoration(labelText: 'Mobil')),
-              TextFormField(controller: _festnetzController, decoration: const InputDecoration(labelText: 'Festnetz')),
-              TextFormField(controller: _krankheitController, decoration: const InputDecoration(labelText: 'Kommentar')),
-              DropdownButtonFormField<String>(
-                decoration: const InputDecoration(labelText: 'Rolle'),
-                items: _rolleOptions.map((r) => DropdownMenuItem(value: r, child: Text(r))).toList(),
-                value: _rolle,
-                onChanged: (val) => setState(() => _rolle = val),
+              const SizedBox(height: 12),
+              
+              // Titel, Vorname, Nachname in einer Zeile
+              Row(
+                children: [
+                  Expanded(
+                    flex: 1,
+                    child: DropdownButtonFormField<String>(
+                      decoration: const InputDecoration(labelText: 'Anrede'),
+                      items: _titelOptions.map((t) => DropdownMenuItem(value: t, child: Text(t))).toList(),
+                      value: _titel,
+                      onChanged: (val) => setState(() => _titel = val),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    flex: 2,
+                    child: TextFormField(
+                      controller: _vornameController,
+                      decoration: const InputDecoration(labelText: 'Vorname'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    flex: 2,
+                    child: TextFormField(
+                      controller: _nachnameController,
+                      decoration: const InputDecoration(labelText: 'Nachname'),
+                    ),
+                  ),
+                ],
               ),
-              DropdownButtonFormField<String>(
-                decoration: const InputDecoration(labelText: 'Status'),
-                items: _statusOptions.map((s) => DropdownMenuItem(value: s, child: Text(s))).toList(),
-                value: _status,
-                onChanged: (val) => setState(() => _status = val),
+              
+              const SizedBox(height: 16),
+              
+              // Straße und Hausnummer in einer Zeile
+              Row(
+                children: [
+                  Expanded(
+                    flex: 3,
+                    child: TextFormField(
+                      controller: _strasseController,
+                      decoration: const InputDecoration(labelText: 'Straße'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    flex: 1,
+                    child: TextFormField(
+                      controller: _hausnummerController,
+                      decoration: const InputDecoration(labelText: 'Hausnummer'),
+                    ),
+                  ),
+                ],
               ),
-              DropdownButtonFormField<String>(
-                decoration: const InputDecoration(labelText: 'Kontaktquelle'),
-                items: _kontaktquelleOptions.map((k) => DropdownMenuItem(value: k, child: Text(k))).toList(),
-                value: _kontaktquelle,
-                onChanged: (val) => setState(() => _kontaktquelle = val),
+              
+              const SizedBox(height: 16),
+              
+              // PLZ und Ort in einer Zeile
+              Row(
+                children: [
+                  Expanded(
+                    flex: 1,
+                    child: TextFormField(
+                      controller: _plzController,
+                      decoration: const InputDecoration(labelText: 'PLZ'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    flex: 2,
+                    child: TextFormField(
+                      controller: _ortController,
+                      decoration: const InputDecoration(labelText: 'Ort'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    flex: 2,
+                    child: TextFormField(
+                      controller: _landController,
+                      decoration: const InputDecoration(labelText: 'Land'),
+                    ),
+                  ),
+                ],
               ),
-              TextFormField(controller: _typController, decoration: const InputDecoration(labelText: 'Typ')),
-              TextFormField(controller: _stadiumController, decoration: const InputDecoration(labelText: 'Stadium')),
-              TextFormField(controller: _nachrichtController, decoration: const InputDecoration(labelText: 'Nachricht')),
-              TextFormField(controller: _infosController, decoration: const InputDecoration(labelText: 'Infos')),
+              
+              const SizedBox(height: 16),
+              
+              // E-Mail
               TextFormField(
-  controller: _wiedervorlageController,
-  decoration: const InputDecoration(
-    labelText: 'Wiedervorlage (Datum auswählen)',
-    suffixIcon: Icon(Icons.calendar_today),
-  ),
-  readOnly: true, // Damit die Tastatur nicht erscheint
-  onTap: () async {
-    DateTime? initialDate;
-    if (_wiedervorlageController.text.isNotEmpty) {
-      initialDate = DateTime.tryParse(_wiedervorlageController.text);
-    }
-    final now = DateTime.now();
-    final pickedDate = await showDatePicker(
-      context: context,
-      initialDate: initialDate ?? now,
-      firstDate: DateTime(now.year - 5),
-      lastDate: DateTime(now.year + 5),
-    );
-    if (pickedDate != null) {
-      setState(() {
-        _wiedervorlageController.text = pickedDate.toIso8601String().split('T').first;
-      });
-    }
-  },
-),
+                controller: _emailController,
+                decoration: const InputDecoration(
+                  labelText: 'E-Mail',
+                  prefixIcon: Icon(Icons.email),
+                ),
+              ),
+              
+              const SizedBox(height: 16),
+              
+              // Mobil und Festnetz in einer Zeile
+              Row(
+                children: [
+                  Expanded(
+                    child: TextFormField(
+                      controller: _mobilController,
+                      decoration: const InputDecoration(
+                        labelText: 'Mobil',
+                        prefixIcon: Icon(Icons.phone_android),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: TextFormField(
+                      controller: _festnetzController,
+                      decoration: const InputDecoration(
+                        labelText: 'Festnetz',
+                        prefixIcon: Icon(Icons.phone),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              
+              const SizedBox(height: 24),
+              
+              // ===== GESCHÄFTSDATEN =====
+              const Text(
+                'Geschäftsdaten',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.green,
+                ),
+              ),
+              const SizedBox(height: 12),
+              
+              // Rolle, Status, Kontaktquelle in einer Zeile
+              Row(
+                children: [
+                  Expanded(
+                    child: DropdownButtonFormField<String>(
+                      decoration: const InputDecoration(labelText: 'Rolle'),
+                      items: _rolleOptions.map((r) => DropdownMenuItem(value: r, child: Text(r))).toList(),
+                      value: _rolle,
+                      onChanged: (val) => setState(() => _rolle = val),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: DropdownButtonFormField<String>(
+                      decoration: const InputDecoration(labelText: 'Status'),
+                      items: _statusOptions.map((s) => DropdownMenuItem(value: s, child: Text(s))).toList(),
+                      value: _status,
+                      onChanged: (val) => setState(() => _status = val),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: DropdownButtonFormField<String>(
+                      decoration: const InputDecoration(labelText: 'Kontaktquelle'),
+                      items: _kontaktquelleOptions.map((k) => DropdownMenuItem(value: k, child: Text(k))).toList(),
+                      value: _kontaktquelle,
+                      onChanged: (val) => setState(() => _kontaktquelle = val),
+                    ),
+                  ),
+                ],
+              ),
+              
+              const SizedBox(height: 16),
+              
+              // Rabatt, Krankenversicherung, Test in einer Zeile
+              Row(
+                children: [
+                  Expanded(
+                    child: TextFormField(
+                      controller: _rabattController,
+                      decoration: const InputDecoration(labelText: 'Rabatt'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: TextFormField(
+                      controller: _krankenversicherungController,
+                      decoration: const InputDecoration(labelText: 'Krankenversicherung'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: DropdownButtonFormField<String>(
+                      decoration: const InputDecoration(labelText: 'Test'),
+                      items: _testOptions.map((t) => DropdownMenuItem(value: t, child: Text(t))).toList(),
+                      value: _test,
+                      onChanged: (val) => setState(() => _test = val),
+                    ),
+                  ),
+                ],
+              ),
+              
+              const SizedBox(height: 24),
+              
+              // ===== INFORMATIONEN =====
+              const Text(
+                'Informationen',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.orange,
+                ),
+              ),
+              const SizedBox(height: 12),
+              
+              // Typ und Stadium in einer Zeile
+              Row(
+                children: [
+                  Expanded(
+                    child: TextFormField(
+                      controller: _typController,
+                      decoration: const InputDecoration(labelText: 'Typ'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: TextFormField(
+                      controller: _stadiumController,
+                      decoration: const InputDecoration(labelText: 'Stadium'),
+                    ),
+                  ),
+                ],
+              ),
+              
+              const SizedBox(height: 16),
+              
+              // Nachricht mehrzeilig
+              TextFormField(
+                controller: _nachrichtController,
+                decoration: const InputDecoration(
+                  labelText: 'Nachricht',
+                  alignLabelWithHint: true,
+                  border: OutlineInputBorder(),
+                ),
+                maxLines: 4,
+                minLines: 3,
+              ),
+              
+              const SizedBox(height: 16),
+              
+              // Kommentar mehrzeilig
+              TextFormField(
+                controller: _krankheitController,
+                decoration: const InputDecoration(
+                  labelText: 'Kommentar',
+                  alignLabelWithHint: true,
+                  border: OutlineInputBorder(),
+                ),
+                maxLines: 4,
+                minLines: 3,
+              ),
+              
+              const SizedBox(height: 16),
+              
+              // Infos mehrzeilig
+              TextFormField(
+                controller: _infosController,
+                decoration: const InputDecoration(
+                  labelText: 'Zusätzliche Infos',
+                  alignLabelWithHint: true,
+                  border: OutlineInputBorder(),
+                ),
+                maxLines: 3,
+                minLines: 2,
+              ),
+              
+              const SizedBox(height: 24),
+              
+              // ===== WIEDERVORLAGE =====
+              const Text(
+                'Wiedervorlage',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.purple,
+                ),
+              ),
+              const SizedBox(height: 12),
+              
+              TextFormField(
+                controller: _wiedervorlageController,
+                decoration: const InputDecoration(
+                  labelText: 'Wiedervorlage (Datum auswählen)',
+                  suffixIcon: Icon(Icons.calendar_today),
+                ),
+                readOnly: true,
+                onTap: () async {
+                  DateTime? initialDate;
+                  if (_wiedervorlageController.text.isNotEmpty) {
+                    initialDate = DateTime.tryParse(_wiedervorlageController.text);
+                  }
+                  final now = DateTime.now();
+                  final pickedDate = await showDatePicker(
+                    context: context,
+                    initialDate: initialDate ?? now,
+                    firstDate: DateTime(now.year - 5),
+                    lastDate: DateTime(now.year + 5),
+                  );
+                  if (pickedDate != null) {
+                    setState(() {
+                      _wiedervorlageController.text = pickedDate.toIso8601String().split('T').first;
+                    });
+                  }
+                },
+              ),
+              
+              const SizedBox(height: 24),
+              
+              // ===== TODO-LISTE =====
+              const Text(
+                'ToDo-Liste',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.red,
+                ),
+              ),
+              const SizedBox(height: 12),
+              
               TextFormField(
                 controller: _todoController,
                 decoration: InputDecoration(
@@ -347,52 +633,100 @@ class _CrmEntryEditFormState extends State<CrmEntryEditForm> {
                 ),
                 onFieldSubmitted: _addToDoItem,
               ),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: _todoItems.map((todo) {
-                  return Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Expanded(
-                        child: CheckboxListTile(
-                          title: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(todo.text),
-                              Text('Erstellt: ${todo.createdAt != null ? todo.createdAt!.toIso8601String().split('T').first : '-'}', style: const TextStyle(fontSize: 11, color: Colors.grey)),
-                              if (todo.done && todo.doneAt != null)
-                                Text('Erledigt: ${todo.doneAt!.toIso8601String().split('T').first}', style: const TextStyle(fontSize: 11, color: Colors.green)),
-                            ],
+              
+              const SizedBox(height: 16),
+              
+              // ToDo-Liste
+              if (_todoItems.isNotEmpty)
+                Container(
+                  decoration: BoxDecoration(
+                    border: Border.all(color: Colors.grey.shade300),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Column(
+                    children: _todoItems.map((todo) {
+                      return Container(
+                        decoration: BoxDecoration(
+                          border: Border(
+                            bottom: BorderSide(
+                              color: Colors.grey.shade200,
+                              width: 0.5,
+                            ),
                           ),
-                          value: todo.done,
-                          onChanged: (val) {
-                            setState(() {
-                              todo.done = val ?? false;
-                              if (todo.done) {
-                                todo.doneAt = DateTime.now();
-                              } else {
-                                todo.doneAt = null;
-                              }
-                            });
-                          },
                         ),
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.delete),
-                        onPressed: () {
-                          setState(() {
-                            _todoItems.remove(todo);
-                          });
-                        },
-                      )
-                    ],
-                  );
-                }).toList(),
-              ),
-              const SizedBox(height: 24),
-              ElevatedButton(
-                onPressed: _submitForm,
-                child: const Text('Speichern'),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: CheckboxListTile(
+                                title: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      todo.text,
+                                      style: TextStyle(
+                                        decoration: todo.done ? TextDecoration.lineThrough : null,
+                                        color: todo.done ? Colors.grey : Colors.black,
+                                      ),
+                                    ),
+                                    Text(
+                                      'Erstellt: ${todo.createdAt != null ? todo.createdAt!.toIso8601String().split('T').first : '-'}',
+                                      style: const TextStyle(fontSize: 11, color: Colors.grey)
+                                    ),
+                                    if (todo.done && todo.doneAt != null)
+                                      Text(
+                                        'Erledigt: ${todo.doneAt!.toIso8601String().split('T').first}',
+                                        style: const TextStyle(fontSize: 11, color: Colors.green)
+                                      ),
+                                  ],
+                                ),
+                                value: todo.done,
+                                onChanged: (val) {
+                                  setState(() {
+                                    todo.done = val ?? false;
+                                    if (todo.done) {
+                                      todo.doneAt = DateTime.now();
+                                    } else {
+                                      todo.doneAt = null;
+                                    }
+                                  });
+                                },
+                              ),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.delete, color: Colors.red),
+                              onPressed: () {
+                                setState(() {
+                                  _todoItems.remove(todo);
+                                });
+                              },
+                            )
+                          ],
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                ),
+              
+              const SizedBox(height: 32),
+              
+              // Speichern-Button
+              SizedBox(
+                width: double.infinity,
+                height: 50,
+                child: ElevatedButton(
+                  onPressed: _submitForm,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blue,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                  child: const Text(
+                    'Speichern',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                ),
               ),
             ],
           ),

@@ -104,6 +104,9 @@ class CrmEntryBase(BaseModel):
     plz: Optional[str] = None
     ort: Optional[str] = None
     land: Optional[str] = None
+    rabatt: Optional[str] = None
+    krankenversicherung: Optional[str] = None
+    test: Optional[str] = None
 
 class CrmEntryCreate(CrmEntryBase):
     id: str  # Wird vom Frontend mitgegeben (z. B. UUID)
@@ -144,3 +147,6 @@ class CrmEntryUpdate(BaseModel):
     land: Optional[str] = None
     infos: Optional[str] = None
     nachricht: Optional[str] = None
+    rabatt: Optional[str] = None
+    krankenversicherung: Optional[str] = None
+    test: Optional[str] = None
