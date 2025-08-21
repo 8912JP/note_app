@@ -26,28 +26,40 @@ class CrmEntryProvider extends ChangeNotifier {
   set searchText(String value) {
     _searchText = value;
     notifyListeners();
+    // Aktualisiere Tracking-Icons nach Filterung
+    _updateAllTrackingIcons();
   }
 
   set selectedDateRange(DateTimeRange? range) {
     _selectedDateRange = range;
     notifyListeners();
+    // Aktualisiere Tracking-Icons nach Filterung
+    _updateAllTrackingIcons();
   }
 
   set selectedRolle(String? value) {
     _selectedRolle = value;
     notifyListeners();
+    // Aktualisiere Tracking-Icons nach Filterung
+    _updateAllTrackingIcons();
   }
   set selectedBearbeiter(String? value) {
     _selectedBearbeiter = value;
     notifyListeners();
+    // Aktualisiere Tracking-Icons nach Filterung
+    _updateAllTrackingIcons();
   }
   set selectedStatus(String? value) {
     _selectedStatus = value;
     notifyListeners();
+    // Aktualisiere Tracking-Icons nach Filterung
+    _updateAllTrackingIcons();
   }
   set selectedWiedervorlageRange(DateTimeRange? value) {
     _selectedWiedervorlageRange = value;
     notifyListeners();
+    // Aktualisiere Tracking-Icons nach Filterung
+    _updateAllTrackingIcons();
   }
 
   List<CrmEntry> get filteredEntries {
@@ -723,11 +735,14 @@ final Set<_TrackingIconState> _activeTrackingIcons = <_TrackingIconState>{};
 
 // Globale Funktion um alle Tracking-Icons zu aktualisieren
 void _updateAllTrackingIcons() {
-  for (final icon in _activeTrackingIcons) {
-    if (icon.mounted && !icon._disposed) {
-      icon._updateIcon();
+  // Verzögerte Aktualisierung um sicherzustellen, dass die UI aktualisiert wurde
+  Future.delayed(const Duration(milliseconds: 100), () {
+    for (final icon in _activeTrackingIcons) {
+      if (icon.mounted && !icon._disposed) {
+        icon._updateIcon();
+      }
     }
-  }
+  });
 }
 
 // Aktualisiere Note-Cache bei WebSocket-Events
@@ -783,6 +798,13 @@ class _TrackingIconState extends State<_TrackingIcon> {
     
     // Debug: Zeige WebSocket-Status für Tracking-Icon
     print("🔍 Tracking-Icon initialisiert für ${widget.trackingType} (CRM-ID: ${widget.crmEntryId})");
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Aktualisiere Icon-Status wenn Widget sichtbar wird (z.B. nach Filterung)
+    _updateIcon();
   }
 
   @override
