@@ -433,8 +433,7 @@ class CrmDataTableWrapper extends StatelessWidget {
       DataColumn(label: const Text('Nachname'), onSort: (i, a) => provider.sortBy(i, (e) => e.nachname ?? '', a)),
       DataColumn(label: const Text('Rolle'), onSort: (i, a) => provider.sortBy(i, (e) => e.rolle ?? '', a)),
       DataColumn(label: const Text('Adresse'), onSort: (i, a) => provider.sortBy(i, (e) => [e.strasse ?? '', e.hausnummer ?? '', e.plz ?? '', e.ort ?? '', e.land ?? ''].where((v) => v.isNotEmpty).join(' '), a)),
-      DataColumn(label: const Text('E-Mail'), onSort: (i, a) => provider.sortBy(i, (e) => e.email ?? '', a)),
-      DataColumn(label: const Text('Telefon'), onSort: (i, a) => provider.sortBy(i, (e) => (e.mobil ?? '') + (e.festnetz ?? ''), a)),
+      DataColumn(label: const Text('Kontakt'), onSort: (i, a) => provider.sortBy(i, (e) => (e.email ?? '') + (e.mobil ?? '') + (e.festnetz ?? ''), a)),
       DataColumn(label: const Text('Typ / Stadium'), onSort: (i, a) => provider.sortBy(i, (e) => ((e.typ ?? '') + (e.stadium ?? '')), a)),
       DataColumn(label: const Text('Kommentar'), onSort: (i, a) => provider.sortBy(i, (e) => (e.krankheitsstatus ?? '').length, a)),
       DataColumn(label: const Text('Nachricht'), onSort: (i, a) => provider.sortBy(i, (e) => (e.infos ?? '') + (e.nachricht ?? ''), a)),
@@ -543,35 +542,7 @@ class CrmDataSource extends DataTableSource {
             ],
           ),
         ),
-        DataCell(_wrapText(e.email ?? '')),
-        DataCell(
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if ((e.mobil ?? '').isNotEmpty)
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.phone_android, size: 14, color: Colors.grey[600]),
-                    SizedBox(width: 4),
-                    Expanded(child: _wrapText(e.mobil ?? '', maxLines: 1)),
-                  ],
-                ),
-              if ((e.festnetz ?? '').isNotEmpty)
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.phone, size: 14, color: Colors.grey[600]),
-                    SizedBox(width: 4),
-                    Expanded(child: _wrapText(e.festnetz ?? '', maxLines: 1)),
-                  ],
-                ),
-              if ((e.mobil ?? '').isEmpty && (e.festnetz ?? '').isEmpty)
-                _wrapText('-'),
-            ],
-          ),
-        ),
+        DataCell(_buildContactInfo(e.email, e.mobil, e.festnetz)),
         DataCell(_wrapText(
           ((e.typ ?? '').isNotEmpty && (e.stadium ?? '').isNotEmpty)
             ? '${e.typ} / ${e.stadium}'
@@ -728,6 +699,55 @@ class CrmDataSource extends DataTableSource {
   final today = DateTime(now.year, now.month, now.day);
   return !date.isAfter(today);
 }
+
+  // Hilfsfunktion zum Erstellen von Kontaktinformationen mit Icons
+  Widget _buildContactInfo(String? email, String? mobil, String? festnetz) {
+    final emailText = email?.trim() ?? '';
+    final mobilText = mobil?.trim() ?? '';
+    final festnetzText = festnetz?.trim() ?? '';
+    
+    final List<Widget> contactWidgets = [];
+    
+    if (emailText.isNotEmpty) {
+      contactWidgets.add(_wrapText(emailText, maxLines: 1));
+    }
+    
+    if (mobilText.isNotEmpty) {
+      contactWidgets.add(
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.phone_android, size: 14, color: Colors.grey[600]),
+            SizedBox(width: 4),
+            Expanded(child: _wrapText(mobilText, maxLines: 1)),
+          ],
+        ),
+      );
+    }
+    
+    if (festnetzText.isNotEmpty) {
+      contactWidgets.add(
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.phone, size: 14, color: Colors.grey[600]),
+            SizedBox(width: 4),
+            Expanded(child: _wrapText(festnetzText, maxLines: 1)),
+          ],
+        ),
+      );
+    }
+    
+    if (contactWidgets.isEmpty) {
+      return _wrapText('-');
+    }
+    
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: contactWidgets,
+    );
+  }
 }
 
 // Globale Liste aller aktiven Tracking-Icons für manuelle Updates
@@ -936,3 +956,5 @@ String _combineInfosAndNachricht(String? infos, String? nachricht) {
   // Kombiniere Infos und Nachricht mit Zeilenumbruch
   return '$infosText\n$nachrichtText';
 }
+
+
