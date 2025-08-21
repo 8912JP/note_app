@@ -10,6 +10,7 @@ import 'note.dart';
 import 'websocket_manager.dart';
 import 'note_cache_manager.dart';
 
+
 class CrmEntryProvider extends ChangeNotifier {
   List<CrmEntry> _entries = [];
   String _searchText = '';
@@ -421,12 +422,10 @@ class CrmDataTableWrapper extends StatelessWidget {
       DataColumn(label: const Text('Rolle'), onSort: (i, a) => provider.sortBy(i, (e) => e.rolle ?? '', a)),
       DataColumn(label: const Text('Adresse'), onSort: (i, a) => provider.sortBy(i, (e) => [e.strasse ?? '', e.hausnummer ?? '', e.plz ?? '', e.ort ?? '', e.land ?? ''].where((v) => v.isNotEmpty).join(' '), a)),
       DataColumn(label: const Text('E-Mail'), onSort: (i, a) => provider.sortBy(i, (e) => e.email ?? '', a)),
-      DataColumn(label: const Text('Mobil'), onSort: (i, a) => provider.sortBy(i, (e) => e.mobil ?? '', a)),
-      DataColumn(label: const Text('Festnetz'), onSort: (i, a) => provider.sortBy(i, (e) => e.festnetz ?? '', a)),
+      DataColumn(label: const Text('Telefon'), onSort: (i, a) => provider.sortBy(i, (e) => (e.mobil ?? '') + (e.festnetz ?? ''), a)),
       DataColumn(label: const Text('Typ / Stadium'), onSort: (i, a) => provider.sortBy(i, (e) => ((e.typ ?? '') + (e.stadium ?? '')), a)),
       DataColumn(label: const Text('Kommentar'), onSort: (i, a) => provider.sortBy(i, (e) => (e.krankheitsstatus ?? '').length, a)),
-      DataColumn(label: const Text('Infos'), onSort: (i, a) => provider.sortBy(i, (e) => e.infos ?? '', a)),
-      DataColumn(label: const Text('Nachricht'), onSort: (i, a) => provider.sortBy(i, (e) => e.nachricht ?? '', a)),
+      DataColumn(label: const Text('Nachricht'), onSort: (i, a) => provider.sortBy(i, (e) => (e.infos ?? '') + (e.nachricht ?? ''), a)),
       DataColumn(label: const Text('ToDos'), onSort: (i, a) => provider.sortBy(i, (e) => e.todos.length, a)),
       DataColumn(label: const Text('Bearbeiter'), onSort: (i, a) => provider.sortBy(i, (e) => e.bearbeiter ?? '', a)),
       DataColumn(label: const Text('Kontaktquelle'), onSort: (i, a) => provider.sortBy(i, (e) => e.kontaktquelle ?? '', a)),
@@ -518,20 +517,58 @@ class CrmDataSource extends DataTableSource {
         DataCell(_wrapText(e.vorname ?? '')),
         DataCell(_wrapText(e.nachname ?? '')),
         DataCell(_wrapText(e.rolle ?? '')),
-        DataCell(_wrapText(adresse)),
+        DataCell(
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if ((e.strasse ?? '').isNotEmpty || (e.hausnummer ?? '').isNotEmpty)
+                _wrapText('${e.strasse ?? ''} ${e.hausnummer ?? ''}'.trim(), maxLines: 1),
+              if ((e.plz ?? '').isNotEmpty || (e.ort ?? '').isNotEmpty)
+                _wrapText('${e.plz ?? ''} ${e.ort ?? ''}'.trim(), maxLines: 1),
+              if ((e.land ?? '').isNotEmpty)
+                _wrapText(e.land ?? '', maxLines: 1),
+            ],
+          ),
+        ),
         DataCell(_wrapText(e.email ?? '')),
-        DataCell(_wrapText(e.mobil ?? '')),
-        DataCell(_wrapText(e.festnetz ?? '')),
+        DataCell(
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if ((e.mobil ?? '').isNotEmpty)
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.phone_android, size: 14, color: Colors.grey[600]),
+                    SizedBox(width: 4),
+                    Expanded(child: _wrapText(e.mobil ?? '', maxLines: 1)),
+                  ],
+                ),
+              if ((e.festnetz ?? '').isNotEmpty)
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.phone, size: 14, color: Colors.grey[600]),
+                    SizedBox(width: 4),
+                    Expanded(child: _wrapText(e.festnetz ?? '', maxLines: 1)),
+                  ],
+                ),
+              if ((e.mobil ?? '').isEmpty && (e.festnetz ?? '').isEmpty)
+                _wrapText('-'),
+            ],
+          ),
+        ),
         DataCell(_wrapText(
           ((e.typ ?? '').isNotEmpty && (e.stadium ?? '').isNotEmpty)
             ? '${e.typ} / ${e.stadium}'
             : (e.typ ?? '') + (e.stadium ?? ''),
         )),
         DataCell(_wrapText(e.krankheitsstatus ?? '')),
-        DataCell(_wrapText(e.infos ?? '')),
-        DataCell(_wrapText(e.nachricht ?? '')),
+        DataCell(_wrapText(_combineInfosAndNachricht(e.infos, e.nachricht))),
         DataCell(_wrapText(e.todoSummary)),
-        DataCell(_wrapText(e.bearbeiter ?? '')),
+                DataCell(_wrapText(e.bearbeiter ?? '')),
         DataCell(_wrapText(e.kontaktquelle ?? '')),
         DataCell(_wrapText(e.status ?? '')),
         DataCell(
@@ -855,4 +892,25 @@ class _TrackingIconState extends State<_TrackingIcon> {
       onPressed: _onTap,
     );
   }
+}
+
+// Hilfsfunktion zum Kombinieren von Infos und Nachricht
+String _combineInfosAndNachricht(String? infos, String? nachricht) {
+  final infosText = infos?.trim() ?? '';
+  final nachrichtText = nachricht?.trim() ?? '';
+  
+  if (infosText.isEmpty && nachrichtText.isEmpty) {
+    return '';
+  }
+  
+  if (infosText.isEmpty) {
+    return nachrichtText;
+  }
+  
+  if (nachrichtText.isEmpty) {
+    return infosText;
+  }
+  
+  // Kombiniere Infos und Nachricht mit Zeilenumbruch
+  return '$infosText\n$nachrichtText';
 }

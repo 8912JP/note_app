@@ -537,7 +537,7 @@ class _CrmEntryEditFormState extends State<CrmEntryEditForm> {
                   alignLabelWithHint: true,
                   border: OutlineInputBorder(),
                 ),
-                maxLines: 4,
+                maxLines: 8,  // Erhöht von 4 auf 8 für längere Nachrichten
                 minLines: 3,
               ),
               
@@ -551,7 +551,7 @@ class _CrmEntryEditFormState extends State<CrmEntryEditForm> {
                   alignLabelWithHint: true,
                   border: OutlineInputBorder(),
                 ),
-                maxLines: 4,
+                maxLines: 10,  // Erhöht von 4 auf 10 für längere Kommentare
                 minLines: 3,
               ),
               
@@ -565,7 +565,7 @@ class _CrmEntryEditFormState extends State<CrmEntryEditForm> {
                   alignLabelWithHint: true,
                   border: OutlineInputBorder(),
                 ),
-                maxLines: 3,
+                maxLines: 6,  // Erhöht von 3 auf 6 für längere Infos
                 minLines: 2,
               ),
               

@@ -1,5 +1,5 @@
 # schemas.py
-from pydantic import BaseModel, computed_field, field_serializer
+from pydantic import BaseModel, computed_field, field_serializer, Field
 from typing import List, Optional, Any
 from datetime import datetime, date
 
@@ -16,7 +16,7 @@ class Label(LabelBase):
     id: int
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 # ---------- Note ----------
 
@@ -64,7 +64,7 @@ class User(UserBase):
     id: int
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 # ---------- Auth ----------
 
@@ -87,7 +87,7 @@ class CrmEntryBase(BaseModel):
     email: Optional[str] = None
     mobil: Optional[str] = None
     festnetz: Optional[str] = None
-    krankheitsstatus: Optional[str] = None
+    krankheitsstatus: Optional[str] = Field(None, max_length=1000)  # Max 1000 Zeichen in DB
     todos: Optional[List[ToDoItem]] = []
     status: Optional[str] = None
     bearbeiter: Optional[str] = None
@@ -95,8 +95,8 @@ class CrmEntryBase(BaseModel):
     typ: Optional[str] = None
     stadium: Optional[str] = None
     kontaktquelle: Optional[str] = None
-    infos: Optional[str] = None
-    nachricht: Optional[str] = None
+    infos: Optional[str] = Field(None, max_length=1000)
+    nachricht: Optional[str] = Field(None, max_length=1000)
     rolle: Optional[str] = None
     erledigt: bool = False
     strasse: Optional[str] = None
@@ -115,13 +115,13 @@ class CrmEntryOut(CrmEntryBase):
     id: str
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 class CrmEntry(BaseModel):
     id: int
     rolle: Optional[str] = None
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 class CrmEntryUpdate(BaseModel):
     titel: Optional[str]
@@ -130,7 +130,7 @@ class CrmEntryUpdate(BaseModel):
     email: Optional[str]
     mobil: Optional[str]
     festnetz: Optional[str]
-    krankheitsstatus: Optional[str]
+    krankheitsstatus: Optional[str] = Field(None, max_length=1000)
     todos: Optional[List[ToDoItem]]
     status: Optional[str]
     bearbeiter: Optional[str]
@@ -145,8 +145,8 @@ class CrmEntryUpdate(BaseModel):
     plz: Optional[str] = None
     ort: Optional[str] = None
     land: Optional[str] = None
-    infos: Optional[str] = None
-    nachricht: Optional[str] = None
+    infos: Optional[str] = Field(None, max_length=1000)
+    nachricht: Optional[str] = Field(None, max_length=1000)
     rabatt: Optional[str] = None
     krankenversicherung: Optional[str] = None
     test: Optional[str] = None

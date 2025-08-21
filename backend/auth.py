@@ -49,6 +49,9 @@ def authenticate_user(db: Session, username: str, password: str):
     user = get_user_by_username(db, username)
     if not user or not verify_password(password, user.hashed_password):
         return None
+    # Prüfe ob Benutzer aktiviert ist
+    if not user.is_active:
+        return None
     return user
 
 
@@ -82,6 +85,15 @@ def get_current_user(
     user = get_user_by_username(db, username)
     if not user:
         raise credentials_exception
+    
+    # Prüfe ob Benutzer aktiviert ist
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Benutzer ist nicht aktiviert",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
     return user
 
 

@@ -63,6 +63,10 @@ class CrmEntry {
 
   String get fullName => '${vorname ?? ''} ${nachname ?? ''}';
   String get todoSummary => todos.map((t) => t.done ? '✓ ${t.text}' : '• ${t.text}').join('\n');
+  
+
+
+
 
   // ✅ FROM JSON
   factory CrmEntry.fromJson(Map<String, dynamic> json) {

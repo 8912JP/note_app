@@ -4,6 +4,88 @@ const httpProxy = require('http-proxy');
 const fs = require('fs');
 const path = require('path');
 
+// Logging-Setup für strukturierte Logs
+const setupProxyLogging = () => {
+  // Erstelle logs Verzeichnis falls es nicht existiert
+  // Proxy läuft von htdocs, aber Logs sollen in backend/logs
+  const logsDir = path.join(__dirname, '..', 'backend', 'logs');
+  console.log('🔍 Versuche Log-Verzeichnis zu erstellen:', logsDir);
+  
+  try {
+    if (!fs.existsSync(logsDir)) {
+      fs.mkdirSync(logsDir, { recursive: true });
+      console.log('✅ Log-Verzeichnis erstellt:', logsDir);
+    } else {
+      console.log('✅ Log-Verzeichnis existiert bereits:', logsDir);
+    }
+  } catch (error) {
+    console.error('❌ Fehler beim Erstellen des Log-Verzeichnisses:', error.message);
+    // Fallback: Logs im aktuellen Verzeichnis (htdocs)
+    const fallbackLogsDir = path.join(__dirname, 'logs');
+    if (!fs.existsSync(fallbackLogsDir)) {
+      fs.mkdirSync(fallbackLogsDir, { recursive: true });
+    }
+    console.log('🔄 Verwende Fallback-Log-Verzeichnis:', fallbackLogsDir);
+  }
+  
+  // Funktion zum Schreiben in Log-Dateien
+  const writeToLog = (filename, message) => {
+    const timestamp = new Date().toISOString();
+    const logEntry = `${timestamp} - ${message}\n`;
+    
+    // Versuche zuerst backend/logs
+    let logPath = path.join(__dirname, '..', 'backend', 'logs', filename);
+    
+    try {
+      fs.appendFileSync(logPath, logEntry);
+    } catch (error) {
+      console.error(`❌ Fehler beim Schreiben in ${logPath}:`, error.message);
+      // Fallback: Logs im aktuellen Verzeichnis (htdocs)
+      logPath = path.join(__dirname, 'logs', filename);
+      try {
+        fs.appendFileSync(logPath, logEntry);
+        console.log(`🔄 Log geschrieben in Fallback-Verzeichnis: ${logPath}`);
+      } catch (fallbackError) {
+        console.error(`❌ Auch Fallback-Logging fehlgeschlagen:`, fallbackError.message);
+      }
+    }
+  };
+  
+  // Proxy für console.log (normale Logs → proxy.log)
+  const originalLog = console.log;
+  console.log = (...args) => {
+    const message = args.join(' ');
+    writeToLog('proxy.log', message);
+    originalLog(...args);
+  };
+  
+  // Proxy für console.error (Fehler → error.log)
+  const originalError = console.error;
+  console.error = (...args) => {
+    const message = args.join(' ');
+    writeToLog('error.log', `PROXY - ${message}`);
+    originalError(...args);
+  };
+  
+  console.log('📋 Proxy-Logging initialisiert - Logs gehen in logs/proxy.log und logs/error.log');
+  console.log('📁 Aktuelles Verzeichnis:', __dirname);
+  console.log('📁 Log-Verzeichnis:', logsDir);
+};
+
+// Logging initialisieren
+console.log('🔧 Initialisiere Proxy-Logging...');
+try {
+  setupProxyLogging();
+  console.log('✅ Proxy-Logging erfolgreich initialisiert');
+} catch (error) {
+  console.error('❌ Fehler beim Initialisieren des Proxy-Loggings:', error);
+}
+
+// Test-Log beim Start
+console.log('🚀 Combined-Proxy gestartet - Logging aktiv');
+console.log('📁 Aktuelles Verzeichnis:', __dirname);
+console.log('📁 Log-Verzeichnis:', path.join(__dirname, 'logs'));
+
 // Proxy-Konfiguration für HTTP-API (lange Timeouts für stabile Verbindungen)
 const apiProxy = httpProxy.createProxyServer({
   target: 'http://localhost:8000', // FastAPI Backend

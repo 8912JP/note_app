@@ -15,6 +15,7 @@ class User(Base):
     id = Column(Integer, primary_key=True, index=True)
     username = Column(String(100), unique=True, index=True)
     hashed_password = Column(String(200))
+    is_active = Column(Boolean, default=False)  # Standard: inaktiv - muss manuell aktiviert werden
 
     notes = relationship("Note", back_populates="owner")
 
@@ -40,7 +41,7 @@ class Note(Base):
     custom_date = Column(Date, nullable=True)
     gender = Column(String(10))
     is_done = Column(Boolean, default=False)
-    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.datetime.now(datetime.timezone.utc))
     user_id = Column(Integer, ForeignKey("users.id"))  # 🔐 Beziehung zu User
     owner = relationship("User", back_populates="notes")
 
@@ -67,7 +68,7 @@ class CrmEntry(Base):
     email = Column(String(100), index=True)
     mobil = Column(String(50))
     festnetz = Column(String(50))
-    krankheitsstatus = Column(String(100))
+    krankheitsstatus = Column(String(1000))
     todos = Column(JSON, nullable=True, )  # JSON als String, Länge optional je nach DB
     status = Column(String(100))
     bearbeiter = Column(String(100))
@@ -90,3 +91,9 @@ class CrmEntry(Base):
     rabatt = Column(String(100), nullable=True)  # Neues Feld für Rabatt
     krankenversicherung = Column(String(100), nullable=True)  # Neues Feld für Krankenversicherung
     test = Column(String(100), nullable=True)  # Neues Feld für Test (iPrevent, iSelect, etc.)
+    # bearbeiter_history Feld wurde entfernt - alle Bearbeiter werden im bearbeiter-Feld gespeichert
+
+# =======================
+# 📧 Email-Modell entfernt
+# E-Mails werden direkt in CRM-Einträge umgewandelt
+# =======================

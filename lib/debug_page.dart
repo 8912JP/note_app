@@ -30,12 +30,13 @@ class _DebugPageState extends State<DebugPage> {
     debugInfo['accessToken'] = widget.apiService.accessToken != null ? 'Vorhanden (${widget.apiService.accessToken!.length} Zeichen)' : 'Nicht vorhanden';
     debugInfo['loggedInUser'] = widget.apiService.loggedInUser ?? 'Nicht eingeloggt';
     
-    // 2. Server-Status-Checks
+    // 2. Server-Status-Checks (reduziert für weniger Traffic)
     debugInfo['normalStatusCheck'] = await widget.apiService.checkServerStatus();
-    debugInfo['alternativeStatusCheck'] = await widget.apiService.checkServerStatusAlternative();
+    // Alternative Status-Check nur bei Bedarf
+    // debugInfo['alternativeStatusCheck'] = await widget.apiService.checkServerStatusAlternative();
     
-    // 3. Backend-Verbindungstest
-    debugInfo['backendConnectionTest'] = await widget.apiService.testBackendConnection();
+    // 3. Backend-Verbindungstest (nur bei Bedarf)
+    // debugInfo['backendConnectionTest'] = await widget.apiService.testBackendConnection();
     
     // 4. WebSocket-Status
     debugInfo['websocketConnected'] = widget.apiService.isWebSocketConnected();

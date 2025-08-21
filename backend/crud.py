@@ -131,6 +131,8 @@ def create_crm_entry(db: Session, entry: CrmEntryCreate):
         from datetime import datetime
         entry_data["anfrage_datum"] = datetime.now()
 
+    # Keine spezielle Behandlung für bearbeiter_history nötig
+
     db_entry = CrmEntry(**entry_data)
     db.add(db_entry)
     db.commit()
@@ -143,6 +145,26 @@ def update_crm_entry(db: Session, entry_id: str, updated_entry: CrmEntryUpdate):
     if not db_entry:
         raise HTTPException(status_code=404, detail="Eintrag nicht gefunden")
 
+    # Spezielle Behandlung für Bearbeiter-Feld: Alle Bearbeiter sammeln
+    if hasattr(updated_entry, 'bearbeiter') and updated_entry.bearbeiter is not None:
+        current_bearbeiter = db_entry.bearbeiter or ""
+        new_bearbeiter = updated_entry.bearbeiter
+        
+        # Wenn sich der Bearbeiter geändert hat, füge den neuen zur Liste hinzu
+        if new_bearbeiter and new_bearbeiter != current_bearbeiter:
+            # Sammle alle bestehenden Bearbeiter
+            all_bearbeiter = []
+            if current_bearbeiter:
+                all_bearbeiter = [b.strip() for b in current_bearbeiter.split(',') if b.strip()]
+            
+            # Füge neuen Bearbeiter hinzu, falls noch nicht vorhanden
+            if new_bearbeiter not in all_bearbeiter:
+                all_bearbeiter.append(new_bearbeiter)
+            
+            # Aktualisiere das bearbeiter-Feld mit allen Bearbeitern
+            updated_entry.bearbeiter = ', '.join(all_bearbeiter)
+
+    # Aktualisiere alle Felder
     for key, value in updated_entry.dict(exclude_unset=True).items():
         setattr(db_entry, key, value)
 
@@ -151,6 +173,24 @@ def update_crm_entry(db: Session, entry_id: str, updated_entry: CrmEntryUpdate):
     return db_entry
 
 def create_crm_entry_from_email(db, anrede, vorname, nachname, mobil, email, nachricht, infos, strasse=None, hausnummer=None, plz=None, ort=None, land=None, informationsgebiet=None, einverstaendnis=None, betreff=None, anfrage_datum=None, kontaktquelle=None):
+    # Duplikat-Prüfung: Suche nach ähnlichen Einträgen in den letzten 24 Stunden
+    from datetime import datetime, timedelta
+    if anfrage_datum:
+        # Prüfe Einträge mit gleichem Betreff und ähnlichem Datum (±1 Stunde)
+        time_window_start = anfrage_datum - timedelta(hours=1)
+        time_window_end = anfrage_datum + timedelta(hours=1)
+        
+        existing_entry = db.query(CrmEntry).filter(
+            CrmEntry.betreff == betreff,
+            CrmEntry.email == email,
+            CrmEntry.anfrage_datum >= time_window_start,
+            CrmEntry.anfrage_datum <= time_window_end
+        ).first()
+        
+        if existing_entry:
+            print(f"⚠️ Duplikat gefunden: E-Mail '{betreff}' von {email} bereits verarbeitet")
+            return existing_entry  # Gib bestehenden Eintrag zurück
+    
     entry = CrmEntry(
         id=str(uuid.uuid4()),
         titel=anrede,
@@ -171,6 +211,7 @@ def create_crm_entry_from_email(db, anrede, vorname, nachname, mobil, email, nac
         land=land,
         status='Auto Email',
         kontaktquelle=kontaktquelle,
+        # Keine spezielle Behandlung für bearbeiter_history nötig
     )
     db.add(entry)
     db.commit()

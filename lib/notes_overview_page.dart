@@ -52,25 +52,25 @@ class _NotesOverviewPageState extends State<NotesOverviewPage> {
   Timer? _wsMonitoringTimer;
 
   void _startWebSocketMonitoring() {
-    // Überwache WebSocket-Status alle 30 Sekunden
-    _wsMonitoringTimer = Timer.periodic(Duration(seconds: 30), (timer) {
-      if (!mounted) {
-        timer.cancel();
-        return;
-      }
-      
-      final isConnected = apiService.isWebSocketConnected();
-      print('🔍 WebSocket Monitoring: ${isConnected ? "Verbunden" : "Nicht verbunden"}');
-      
-      // Wenn nicht verbunden und Listener vorhanden, versuche Reconnect
-      if (!isConnected && _wsListener != null) {
-        print('⚠️ WebSocket nicht verbunden, aber Listener vorhanden. Versuche Reconnect...');
-        apiService.removeWebSocketListener(_wsListener!);
-        apiService.removeWebSocketErrorListener(_wsErrorListener!);
-        apiService.addWebSocketListener(_wsListener!);
-        apiService.addWebSocketErrorListener(_wsErrorListener!);
-      }
-    });
+    // Entfernt: Redundantes Monitoring - Auto-Reconnect Timer in api_service.dart übernimmt diese Funktion
+    // _wsMonitoringTimer = Timer.periodic(Duration(seconds: 120), (timer) {
+    //   if (!mounted) {
+    //     timer.cancel();
+    //     return;
+    //   }
+    //   
+    //   final isConnected = apiService.isWebSocketConnected();
+    //   print('🔍 WebSocket Monitoring: ${isConnected ? "Verbunden" : "Nicht verbunden"}');
+    //   
+    //   // Wenn nicht verbunden und Listener vorhanden, versuche Reconnect
+    //   if (!isConnected && _wsListener != null) {
+    //     print('⚠️ WebSocket nicht verbunden, aber Listener vorhanden. Versuche Reconnect...');
+    //     apiService.removeWebSocketListener(_wsListener!);
+    //     apiService.removeWebSocketErrorListener(_wsErrorListener!);
+    //     apiService.addWebSocketListener(_wsListener!);
+    //     apiService.addWebSocketErrorListener(_wsErrorListener!);
+    //   }
+    // });
   }
 
   void _setupWebSocket() {
@@ -213,8 +213,8 @@ class _NotesOverviewPageState extends State<NotesOverviewPage> {
     WebSocketManager().unregisterNotesFullReloadUpdater(_loadNotes);
     WebSocketManager().unregisterNotesUpdater(_handleNoteUpdate);
     
-    // Monitoring-Timer stoppen
-    _wsMonitoringTimer?.cancel();
+    // Monitoring-Timer stoppen (entfernt - Timer existiert nicht mehr)
+    // _wsMonitoringTimer?.cancel();
     super.dispose();
   }
 
