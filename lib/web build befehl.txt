@@ -1,0 +1,8 @@
+# Flutter Web Build mit WASM (WebAssembly) - Flutter 3.22+
+flutter build web --wasm --base-href /app/
+
+# Alternative: Ohne WASM (traditionell)
+# flutter build web --base-href /app/
+
+# Nach dem Build: In htdocs/app/ kopieren
+# cp -r build/web/* ../backend/htdocs/app/

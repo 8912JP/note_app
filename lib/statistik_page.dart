@@ -69,10 +69,10 @@ class _StatistikPageState extends State<StatistikPage> {
   Widget _buildKpiCards() {
     final filtered = _filteredEntries();
     final total = filtered.length;
-    final abgeschlossen = filtered.where((e) => (e.status ?? '').toLowerCase().contains('abgeschlossen')).length;
+    final einsender = filtered.where((e) => (e.status ?? '').toLowerCase().contains('einsender')).length;
+    final nichtEinsender = filtered.where((e) => (e.status ?? '').toLowerCase().contains('nicht einsender')).length;
     final offen = filtered.where((e) => (e.status ?? '').toLowerCase().contains('offen')).length;
-    final abgelehnt = filtered.where((e) => (e.status ?? '').toLowerCase().contains('abgelehnt')).length;
-    final quote = total > 0 ? (abgeschlossen / total * 100).toStringAsFixed(1) : '0';
+    final quote = total > 0 ? (einsender / total * 100).toStringAsFixed(1) : '0';
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 16),
       child: SingleChildScrollView(
@@ -81,11 +81,11 @@ class _StatistikPageState extends State<StatistikPage> {
           children: [
             _kpiCard('Gesamt', total.toString(), Icons.all_inbox, Colors.blue[700]!),
             const SizedBox(width: 16),
-            _kpiCard('Abgeschlossen', abgeschlossen.toString(), Icons.check_circle, Colors.green[700]!),
+            _kpiCard('Einsender', einsender.toString(), Icons.check_circle, Colors.green[700]!),
             const SizedBox(width: 16),
             _kpiCard('Offen', offen.toString(), Icons.pending, Colors.amber[800]!),
             const SizedBox(width: 16),
-            _kpiCard('Abgelehnt', abgelehnt.toString(), Icons.cancel, Colors.red[700]!),
+            _kpiCard('nicht Einsender', nichtEinsender.toString(), Icons.cancel, Colors.red[700]!),
             const SizedBox(width: 16),
             _kpiCard('Abschlussquote', '$quote %', Icons.percent, Colors.teal[700]!),
           ],
@@ -203,6 +203,230 @@ class _StatistikPageState extends State<StatistikPage> {
                         final idx = quelleKeys.indexOf(k);
                         final color = Colors.primaries[idx % Colors.primaries.length];
                         final value = quelleMap[k] ?? 0;
+                        final percent = total > 0 ? value / total * 100 : 0.0;
+                        return Container(
+                          constraints: const BoxConstraints(maxWidth: 180),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Container(width: 12, height: 12, decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(3))),
+                              const SizedBox(width: 6),
+                              Flexible(child: Text(k, style: const TextStyle(fontSize: 13, color: Colors.black87), overflow: TextOverflow.ellipsis)),
+                              Text(' $value', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                              const SizedBox(width: 4),
+                              Text('(${percent.toStringAsFixed(1)}%)', style: const TextStyle(fontSize: 12, color: Colors.black54)),
+                            ],
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  // PieChart für Typen
+  Widget _buildTypPieChart() {
+    final filtered = _filteredEntries();
+    final typMap = <String, int>{};
+    for (final e in filtered) {
+      var typ = (e.typ ?? '').trim();
+      if (typ.isEmpty) typ = 'Sonstiges';
+      typMap[typ] = (typMap[typ] ?? 0) + 1;
+    }
+    final total = filtered.length;
+    int? touchedIndex;
+    final typKeys = typMap.keys.toList();
+    return StatefulBuilder(
+      builder: (context, setState) {
+        final sections = typMap.entries.map((e) {
+          final idx = typKeys.indexOf(e.key);
+          final percent = total > 0 ? e.value / total * 100 : 0.0;
+          return PieChartSectionData(
+            value: e.value.toDouble(),
+            title: '${percent.toStringAsFixed(1)}%',
+            color: Colors.primaries[idx % Colors.primaries.length],
+            radius: touchedIndex == idx ? 52 : 44,
+            titleStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white),
+            badgeWidget: touchedIndex == idx
+                ? Card(
+                    color: Colors.white,
+                    elevation: 4,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      child: Text('${e.key}: ${e.value}', style: const TextStyle(fontSize: 12)),
+                    ),
+                  )
+                : null,
+            badgePositionPercentageOffset: 1.2,
+          );
+        }).toList();
+        return Center(
+          child: SizedBox(
+            width: 500,
+            child: Card(
+              margin: const EdgeInsets.all(8),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+              elevation: 2,
+              child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.pie_chart, color: Colors.deepPurple, size: 20),
+                        const SizedBox(width: 8),
+                        Expanded(child: Text('Typen', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18), overflow: TextOverflow.ellipsis)),
+                      ],
+                    ),
+                    const SizedBox(height: 2),
+                    const Text('Verteilung der Anfragen nach Typ im gewählten Zeitraum', style: TextStyle(fontSize: 12, color: Colors.black54)),
+                    SizedBox(height: 12),
+                    SizedBox(
+                      height: 180,
+                      child: PieChart(
+                        PieChartData(
+                          sections: sections,
+                          sectionsSpace: 2,
+                          centerSpaceRadius: 24,
+                          borderData: FlBorderData(show: false),
+                          pieTouchData: PieTouchData(
+                            touchCallback: (event, response) {
+                              setState(() {
+                                touchedIndex = response?.touchedSection?.touchedSectionIndex;
+                              });
+                            },
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 4,
+                      children: typKeys.map((k) {
+                        final idx = typKeys.indexOf(k);
+                        final color = Colors.primaries[idx % Colors.primaries.length];
+                        final value = typMap[k] ?? 0;
+                        final percent = total > 0 ? value / total * 100 : 0.0;
+                        return Container(
+                          constraints: const BoxConstraints(maxWidth: 180),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Container(width: 12, height: 12, decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(3))),
+                              const SizedBox(width: 6),
+                              Flexible(child: Text(k, style: const TextStyle(fontSize: 13, color: Colors.black87), overflow: TextOverflow.ellipsis)),
+                              Text(' $value', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                              const SizedBox(width: 4),
+                              Text('(${percent.toStringAsFixed(1)}%)', style: const TextStyle(fontSize: 12, color: Colors.black54)),
+                            ],
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  // PieChart für Stadium
+  Widget _buildStadiumPieChart() {
+    final filtered = _filteredEntries();
+    final stadiumMap = <String, int>{};
+    for (final e in filtered) {
+      var stadium = (e.stadium ?? '').trim();
+      if (stadium.isEmpty) stadium = 'Sonstiges';
+      stadiumMap[stadium] = (stadiumMap[stadium] ?? 0) + 1;
+    }
+    final total = filtered.length;
+    int? touchedIndex;
+    final stadiumKeys = stadiumMap.keys.toList();
+    return StatefulBuilder(
+      builder: (context, setState) {
+        final sections = stadiumMap.entries.map((e) {
+          final idx = stadiumKeys.indexOf(e.key);
+          final percent = total > 0 ? e.value / total * 100 : 0.0;
+          return PieChartSectionData(
+            value: e.value.toDouble(),
+            title: '${percent.toStringAsFixed(1)}%',
+            color: Colors.primaries[idx % Colors.primaries.length],
+            radius: touchedIndex == idx ? 52 : 44,
+            titleStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white),
+            badgeWidget: touchedIndex == idx
+                ? Card(
+                    color: Colors.white,
+                    elevation: 4,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      child: Text('${e.key}: ${e.value}', style: const TextStyle(fontSize: 12)),
+                    ),
+                  )
+                : null,
+            badgePositionPercentageOffset: 1.2,
+          );
+        }).toList();
+        return Center(
+          child: SizedBox(
+            width: 500,
+            child: Card(
+              margin: const EdgeInsets.all(8),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+              elevation: 2,
+              child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.pie_chart, color: Colors.teal, size: 20),
+                        const SizedBox(width: 8),
+                        Expanded(child: Text('Stadium', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18), overflow: TextOverflow.ellipsis)),
+                      ],
+                    ),
+                    const SizedBox(height: 2),
+                    const Text('Verteilung der Anfragen nach Stadium im gewählten Zeitraum', style: TextStyle(fontSize: 12, color: Colors.black54)),
+                    SizedBox(height: 12),
+                    SizedBox(
+                      height: 180,
+                      child: PieChart(
+                        PieChartData(
+                          sections: sections,
+                          sectionsSpace: 2,
+                          centerSpaceRadius: 24,
+                          borderData: FlBorderData(show: false),
+                          pieTouchData: PieTouchData(
+                            touchCallback: (event, response) {
+                              setState(() {
+                                touchedIndex = response?.touchedSection?.touchedSectionIndex;
+                              });
+                            },
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 4,
+                      children: stadiumKeys.map((k) {
+                        final idx = stadiumKeys.indexOf(k);
+                        final color = Colors.primaries[idx % Colors.primaries.length];
+                        final value = stadiumMap[k] ?? 0;
                         final percent = total > 0 ? value / total * 100 : 0.0;
                         return Container(
                           constraints: const BoxConstraints(maxWidth: 180),
@@ -397,9 +621,9 @@ class _StatistikPageState extends State<StatistikPage> {
     for (final d in xAxis) {
       String key;
       if (_zeitraum == Zeitraum.woche || _zeitraum == Zeitraum.monat) {
-        key = DateFormat('yyyy-MM-dd').format(d);
+        key = DateFormat('yyyy-MM-dd', 'de_DE').format(d);
       } else {
-        key = DateFormat('yyyy-MM').format(d);
+        key = DateFormat('yyyy-MM', 'de_DE').format(d);
       }
       counts[key] = 0;
     }
@@ -407,9 +631,9 @@ class _StatistikPageState extends State<StatistikPage> {
       if (e.anfrageDatum != null) {
         String key;
         if (_zeitraum == Zeitraum.woche || _zeitraum == Zeitraum.monat) {
-          key = DateFormat('yyyy-MM-dd').format(e.anfrageDatum!);
+          key = DateFormat('yyyy-MM-dd', 'de_DE').format(e.anfrageDatum!);
         } else {
-          key = DateFormat('yyyy-MM').format(DateTime(e.anfrageDatum!.year, e.anfrageDatum!.month));
+          key = DateFormat('yyyy-MM', 'de_DE').format(DateTime(e.anfrageDatum!.year, e.anfrageDatum!.month));
         }
         if (counts.containsKey(key)) counts[key] = counts[key]! + 1;
       }
@@ -418,9 +642,9 @@ class _StatistikPageState extends State<StatistikPage> {
       final d = xAxis[i];
       String key;
       if (_zeitraum == Zeitraum.woche || _zeitraum == Zeitraum.monat) {
-        key = DateFormat('yyyy-MM-dd').format(d);
+        key = DateFormat('yyyy-MM-dd', 'de_DE').format(d);
       } else {
-        key = DateFormat('yyyy-MM').format(d);
+        key = DateFormat('yyyy-MM', 'de_DE').format(d);
       }
       return BarChartGroupData(
         x: i,
@@ -446,17 +670,17 @@ class _StatistikPageState extends State<StatistikPage> {
         final barGroups = _buildMonthlyBarGroups();
         List<String> labels;
         if (_zeitraum == Zeitraum.woche) {
-          labels = List.generate(7, (i) => DateFormat('E').format(now.subtract(Duration(days: 6 - i))));
+          labels = List.generate(7, (i) => DateFormat('E', 'de_DE').format(now.subtract(Duration(days: 6 - i))));
         } else if (_zeitraum == Zeitraum.monat) {
           final firstDay = DateTime(now.year, now.month, 1);
           final daysInMonth = DateTime(now.year, now.month + 1, 0).day;
           labels = List.generate(daysInMonth, (i) => (i + 1).toString());
         } else if (_zeitraum == Zeitraum.jahr) {
-          labels = List.generate(12, (i) => DateFormat('MMM').format(DateTime(now.year, i + 1)));
+          labels = List.generate(12, (i) => DateFormat('MMM', 'de_DE').format(DateTime(now.year, i + 1)));
         } else {
           labels = List.generate(12, (i) {
             final d = DateTime(now.year, now.month - 11 + i);
-            return DateFormat('MM.yy').format(d);
+            return DateFormat('MM.yy', 'de_DE').format(d);
           });
         }
         return Center(
@@ -487,14 +711,14 @@ class _StatistikPageState extends State<StatistikPage> {
                       child: BarChart(
                         BarChartData(
                           alignment: BarChartAlignment.spaceAround,
-                          maxY: (barGroups.map((g) => g.barRods.first.toY).reduce((a, b) => a > b ? a : b) + 2).clamp(4, 999),
+                          maxY: (barGroups.map((g) => g.barRods.first.toY).reduce((a, b) => a > b ? a : b) + 2).clamp(4, 999).toDouble(),
                           barGroups: barGroups,
                           barTouchData: BarTouchData(
                             enabled: true,
                             touchTooltipData: BarTouchTooltipData(
                               getTooltipItem: (group, groupIndex, rod, rodIndex) {
                                 return BarTooltipItem(
-                                  '${labels[group.x]}: ${rod.toY.toInt()}',
+                                  '${labels[group.x.toInt()]}: ${rod.toY.toInt()}',
                                   const TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 12),
                                 );
                               },
@@ -649,54 +873,67 @@ class _StatistikPageState extends State<StatistikPage> {
     );
   }
 
-  // Liniendiagramm: Abschlussquote im Zeitverlauf (mit kompakter Legende)
-  Widget _buildQuoteLineChart() {
+  // Balkendiagramm: Abschlussquote im Zeitverlauf (Einsender vs. nicht Einsender)
+  Widget _buildQuoteBarChart() {
+    List<DateTime> xAxis;
+    List<String> labels;
+    if (_zeitraum == Zeitraum.woche) {
+      xAxis = getWeekXAxis();
+      labels = getWeekLabels();
+    } else if (_zeitraum == Zeitraum.monat) {
+      final now = DateTime.now();
+      final firstDay = DateTime(now.year, now.month, 1);
+      final daysInMonth = DateTime(now.year, now.month + 1, 0).day;
+      xAxis = List.generate(daysInMonth, (i) => firstDay.add(Duration(days: i)));
+      labels = List.generate(daysInMonth, (i) => (i + 1).toString());
+    } else if (_zeitraum == Zeitraum.jahr) {
+      final now = DateTime.now();
+      xAxis = List.generate(12, (i) => DateTime(now.year, i + 1));
+      labels = List.generate(12, (i) => DateFormat('MMM', 'de_DE').format(DateTime(now.year, i + 1)));
+    } else {
+      final now = DateTime.now();
+      xAxis = List.generate(12, (i) => DateTime(now.year, now.month - 11 + i));
+      labels = List.generate(12, (i) {
+        final d = DateTime(now.year, now.month - 11 + i);
+        return DateFormat('MM.yy', 'de_DE').format(d);
+      });
+    }
+    final filtered = _filteredEntries();
+    final einsenderCounts = List.filled(xAxis.length, 0);
+    final nichtEinsenderCounts = List.filled(xAxis.length, 0);
+    for (int i = 0; i < xAxis.length; i++) {
+      final d = xAxis[i];
+      List<CrmEntry> periodEntries;
+      if (_zeitraum == Zeitraum.woche || _zeitraum == Zeitraum.monat) {
+        periodEntries = filtered.where((e) => e.anfrageDatum != null && DateFormat('yyyy-MM-dd', 'de_DE').format(e.anfrageDatum!) == DateFormat('yyyy-MM-dd', 'de_DE').format(d)).toList();
+      } else {
+        periodEntries = filtered.where((e) => e.anfrageDatum != null && e.anfrageDatum!.year == d.year && e.anfrageDatum!.month == d.month).toList();
+      }
+      einsenderCounts[i] = periodEntries.where((e) => (e.status ?? '').toLowerCase().contains('einsender')).length;
+      nichtEinsenderCounts[i] = periodEntries.where((e) => (e.status ?? '').toLowerCase().contains('nicht einsender')).length;
+    }
+    final barGroups = List.generate(xAxis.length, (i) {
+      return BarChartGroupData(
+        x: i,
+        barRods: [
+          BarChartRodData(
+            toY: einsenderCounts[i].toDouble(),
+            color: Colors.green,
+            width: 12,
+            borderRadius: BorderRadius.circular(3),
+          ),
+          BarChartRodData(
+            toY: nichtEinsenderCounts[i].toDouble(),
+            color: Colors.red,
+            width: 12,
+            borderRadius: BorderRadius.circular(3),
+          ),
+        ],
+        barsSpace: 4,
+      );
+    });
     return StatefulBuilder(
       builder: (context, setState) {
-        final filtered = _filteredEntries();
-        final total = filtered.length;
-        final now = DateTime.now();
-        List<DateTime> xAxis;
-        if (_zeitraum == Zeitraum.woche) {
-          xAxis = List.generate(7, (i) => now.subtract(Duration(days: 6 - i)));
-        } else if (_zeitraum == Zeitraum.monat) {
-          final firstDay = DateTime(now.year, now.month, 1);
-          final daysInMonth = DateTime(now.year, now.month + 1, 0).day;
-          xAxis = List.generate(daysInMonth, (i) => firstDay.add(Duration(days: i)));
-        } else if (_zeitraum == Zeitraum.jahr) {
-          xAxis = List.generate(12, (i) => DateTime(now.year, i + 1));
-        } else {
-          xAxis = List.generate(12, (i) => DateTime(now.year, now.month - 11 + i));
-        }
-        final quotePoints = <FlSpot>[];
-        for (int i = 0; i < xAxis.length; i++) {
-          final d = xAxis[i];
-          List<CrmEntry> periodEntries;
-          if (_zeitraum == Zeitraum.woche || _zeitraum == Zeitraum.monat) {
-            periodEntries = filtered.where((e) => e.anfrageDatum != null && DateFormat('yyyy-MM-dd').format(e.anfrageDatum!) == DateFormat('yyyy-MM-dd').format(d)).toList();
-          } else {
-            periodEntries = filtered.where((e) => e.anfrageDatum != null && e.anfrageDatum!.year == d.year && e.anfrageDatum!.month == d.month).toList();
-          }
-          final total = periodEntries.length;
-          final abgeschlossen = periodEntries.where((e) => (e.status ?? '').toLowerCase().contains('abgeschlossen')).length;
-          final quote = total > 0 ? abgeschlossen / total * 100 : 0.0;
-          quotePoints.add(FlSpot(i.toDouble(), quote));
-        }
-        List<String> labels;
-        if (_zeitraum == Zeitraum.woche) {
-          labels = List.generate(7, (i) => DateFormat('E').format(now.subtract(Duration(days: 6 - i))));
-        } else if (_zeitraum == Zeitraum.monat) {
-          final firstDay = DateTime(now.year, now.month, 1);
-          final daysInMonth = DateTime(now.year, now.month + 1, 0).day;
-          labels = List.generate(daysInMonth, (i) => (i + 1).toString());
-        } else if (_zeitraum == Zeitraum.jahr) {
-          labels = List.generate(12, (i) => DateFormat('MMM').format(DateTime(now.year, i + 1)));
-        } else {
-          labels = List.generate(12, (i) {
-            final d = DateTime(now.year, now.month - 11 + i);
-            return DateFormat('MM.yy').format(d);
-          });
-        }
         return Center(
           child: SizedBox(
             width: 500,
@@ -712,40 +949,30 @@ class _StatistikPageState extends State<StatistikPage> {
                   children: [
                     Row(
                       children: [
-                        const Icon(Icons.trending_up, color: Colors.orange, size: 20),
+                        const Icon(Icons.bar_chart, color: Colors.green, size: 20),
                         const SizedBox(width: 8),
-                        Expanded(child: Text('Abschlussquote im Verlauf', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18), overflow: TextOverflow.ellipsis)),
+                        Expanded(child: Text('Einsender / nicht Einsender im Verlauf', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18), overflow: TextOverflow.ellipsis)),
                       ],
                     ),
                     const SizedBox(height: 2),
-                    const Text('Abschlussquote im gewählten Zeitraum', style: TextStyle(fontSize: 12, color: Colors.black54)),
-                    SizedBox(height: 24),
+                    const Text('Anzahl der Einsender und nicht Einsender pro Zeitraum', style: TextStyle(fontSize: 12, color: Colors.black54)),
+                    SizedBox(height: 12),
                     SizedBox(
                       height: 180,
-                      child: LineChart(
-                        LineChartData(
-                          minY: 0,
-                          maxY: 100,
-                          lineBarsData: [
-                            LineChartBarData(
-                              spots: quotePoints,
-                              isCurved: true,
-                              color: Colors.green,
-                              barWidth: 2.5,
-                              dotData: FlDotData(show: true),
-                              belowBarData: BarAreaData(show: false),
-                            ),
-                          ],
-                          lineTouchData: LineTouchData(
+                      child: BarChart(
+                        BarChartData(
+                          alignment: BarChartAlignment.spaceAround,
+                          maxY: ([...einsenderCounts, ...nichtEinsenderCounts].reduce((a, b) => a > b ? a : b) + 2).clamp(4, 999).toDouble(),
+                          barGroups: barGroups,
+                          barTouchData: BarTouchData(
                             enabled: true,
-                            touchTooltipData: LineTouchTooltipData(
-                              getTooltipItems: (touchedSpots) {
-                                return touchedSpots.map((spot) {
-                                  return LineTooltipItem(
-                                    '${labels[spot.x.toInt()]}: ${spot.y.toStringAsFixed(1)}%',
-                                    const TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 12),
-                                  );
-                                }).toList();
+                            touchTooltipData: BarTouchTooltipData(
+                              getTooltipItem: (group, groupIndex, rod, rodIndex) {
+                                final isEinsender = rodIndex == 0;
+                                return BarTooltipItem(
+                                  '${labels[group.x.toInt()]}\n${isEinsender ? 'Einsender' : 'nicht Einsender'}: ${rod.toY.toInt()}',
+                                  TextStyle(color: isEinsender ? Colors.green : Colors.red, fontWeight: FontWeight.bold, fontSize: 12),
+                                );
                               },
                             ),
                           ),
@@ -775,7 +1002,11 @@ class _StatistikPageState extends State<StatistikPage> {
                       children: [
                         Container(width: 12, height: 12, decoration: BoxDecoration(color: Colors.green, borderRadius: BorderRadius.circular(3))),
                         const SizedBox(width: 6),
-                        Expanded(child: Text('Abschlussquote (%)', style: TextStyle(fontSize: 13, color: Colors.black87), overflow: TextOverflow.ellipsis)),
+                        const Text('Einsender', style: TextStyle(fontSize: 13, color: Colors.black87)),
+                        const Spacer(),
+                        Container(width: 12, height: 12, decoration: BoxDecoration(color: Colors.red, borderRadius: BorderRadius.circular(3))),
+                        const SizedBox(width: 6),
+                        const Text('nicht Einsender', style: TextStyle(fontSize: 13, color: Colors.black87)),
                       ],
                     ),
                   ],
@@ -813,9 +1044,9 @@ class _StatistikPageState extends State<StatistikPage> {
       List<CrmEntry> currentEntries;
       List<CrmEntry> lastYearEntries;
       if (_zeitraum == Zeitraum.woche || _zeitraum == Zeitraum.monat || _zeitraum == Zeitraum.letzte30Tage) {
-        currentEntries = filtered.where((e) => e.anfrageDatum != null && DateFormat('yyyy-MM-dd').format(e.anfrageDatum!) == DateFormat('yyyy-MM-dd').format(d)).toList();
+        currentEntries = filtered.where((e) => e.anfrageDatum != null && DateFormat('yyyy-MM-dd', 'de_DE').format(e.anfrageDatum!) == DateFormat('yyyy-MM-dd', 'de_DE').format(d)).toList();
         final dLastYear = DateTime(d.year - 1, d.month, d.day);
-        lastYearEntries = filtered.where((e) => e.anfrageDatum != null && DateFormat('yyyy-MM-dd').format(e.anfrageDatum!) == DateFormat('yyyy-MM-dd').format(dLastYear)).toList();
+        lastYearEntries = filtered.where((e) => e.anfrageDatum != null && DateFormat('yyyy-MM-dd', 'de_DE').format(e.anfrageDatum!) == DateFormat('yyyy-MM-dd', 'de_DE').format(dLastYear)).toList();
       } else {
         currentEntries = filtered.where((e) => e.anfrageDatum != null && e.anfrageDatum!.year == d.year && e.anfrageDatum!.month == d.month).toList();
         final dLastYear = DateTime(d.year - 1, d.month);
@@ -828,15 +1059,15 @@ class _StatistikPageState extends State<StatistikPage> {
     }
     List<String> labels;
     if (_zeitraum == Zeitraum.woche) {
-      labels = List.generate(7, (i) => DateFormat('E').format(now.subtract(Duration(days: 6 - i))));
+      labels = List.generate(7, (i) => DateFormat('E', 'de_DE').format(now.subtract(Duration(days: 6 - i))));
     } else if (_zeitraum == Zeitraum.monat) {
       final firstDay = DateTime(now.year, now.month, 1);
       final daysInMonth = DateTime(now.year, now.month + 1, 0).day;
       labels = List.generate(daysInMonth, (i) => (i + 1).toString());
     } else if (_zeitraum == Zeitraum.jahr) {
-      labels = List.generate(12, (i) => DateFormat('MMM').format(DateTime(now.year, i + 1)));
+      labels = List.generate(12, (i) => DateFormat('MMM', 'de_DE').format(DateTime(now.year, i + 1)));
     } else {
-      labels = List.generate(30, (i) => DateFormat('d.M.').format(now.subtract(Duration(days: 29 - i))));
+      labels = List.generate(30, (i) => DateFormat('d.M.', 'de_DE').format(now.subtract(Duration(days: 29 - i))));
     }
     final barGroups = List.generate(xAxis.length, (i) {
       return BarChartGroupData(
@@ -890,7 +1121,7 @@ class _StatistikPageState extends State<StatistikPage> {
                       child: BarChart(
                         BarChartData(
                           alignment: BarChartAlignment.spaceAround,
-                          maxY: (barGroups.expand((g) => g.barRods).map((r) => r.toY).reduce((a, b) => a > b ? a : b) + 2).clamp(4, 999),
+                          maxY: (barGroups.expand((g) => g.barRods).map((r) => r.toY).reduce((a, b) => a > b ? a : b) + 2).clamp(4, 999).toDouble(),
                           barGroups: barGroups,
                           barTouchData: BarTouchData(
                             enabled: true,
@@ -898,7 +1129,7 @@ class _StatistikPageState extends State<StatistikPage> {
                               getTooltipItem: (group, groupIndex, rod, rodIndex) {
                                 final isCurrent = rodIndex == 0;
                                 return BarTooltipItem(
-                                  '${labels[group.x]}\n${isCurrent ? 'Aktuell' : 'Vorjahr'}: ${rod.toY.toInt()}',
+                                  '${labels[group.x.toInt()]}\n${isCurrent ? 'Aktuell' : 'Vorjahr'}: ${rod.toY.toInt()}',
                                   TextStyle(color: isCurrent ? Colors.blue : Colors.orange, fontWeight: FontWeight.bold, fontSize: 12),
                                 );
                               },
@@ -967,7 +1198,7 @@ class _StatistikPageState extends State<StatistikPage> {
     for (final e in _entries) {
       sheetRaw.appendRow([
         excel_pkg.TextCellValue(e.id.toString()),
-        excel_pkg.TextCellValue(e.anfrageDatum != null ? DateFormat('yyyy-MM-dd').format(e.anfrageDatum!) : ''),
+        excel_pkg.TextCellValue(e.anfrageDatum != null ? DateFormat('yyyy-MM-dd', 'de_DE').format(e.anfrageDatum!) : ''),
         excel_pkg.TextCellValue((e.status ?? '').trim().isEmpty || (e.status ?? '').trim().toLowerCase() == 'unbekannt' ? 'Sonstiges' : (e.status ?? '').trim()),
         excel_pkg.TextCellValue((e.kontaktquelle ?? '').trim().isEmpty || (e.kontaktquelle ?? '').trim().toLowerCase() == 'unbekannt' ? 'Sonstiges' : (e.kontaktquelle ?? '').trim()),
       ]);
@@ -1017,10 +1248,19 @@ class _StatistikPageState extends State<StatistikPage> {
     }
     // Speichern
     final dir = await getApplicationDocumentsDirectory();
-    final file = File('${dir.path}/statistik_export_${DateFormat('yyyyMMdd_HHmmss').format(DateTime.now())}.xlsx');
+    final file = File('${dir.path}/statistik_export_${DateFormat('yyyyMMdd_HHmmss', 'de_DE').format(DateTime.now())}.xlsx');
     await file.writeAsBytes(excel.encode()!);
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Excel-Datei gespeichert: ${file.path}')));
   }
+
+  // Hilfsfunktion für Woche: Mo-So Labels und xAxis
+  List<DateTime> getWeekXAxis() {
+    final now = DateTime.now();
+    final weekday = now.weekday;
+    final startOfWeek = now.subtract(Duration(days: weekday - 1));
+    return List.generate(7, (i) => startOfWeek.add(Duration(days: i)));
+  }
+  List<String> getWeekLabels() => ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
 
   @override
   Widget build(BuildContext context) {
@@ -1117,6 +1357,20 @@ class _StatistikPageState extends State<StatistikPage> {
       appBar: AppBar(
         title: const Text('Statistik'),
         actions: [
+          // Aktueller Benutzer
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8.0),
+            child: Center(
+              child: Text(
+                widget.apiService.loggedInUser ?? 'Nicht eingeloggt',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                  color: Colors.white70,
+                ),
+              ),
+            ),
+          ),
           IconButton(
             icon: const Icon(Icons.download),
             tooltip: 'Excel-Export',
@@ -1150,24 +1404,29 @@ class _StatistikPageState extends State<StatistikPage> {
                 _buildKpiCards(),
                 const SizedBox(height: 8),
                 isWide
-                    ? Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                    ? Wrap(
+                        spacing: 16,
+                        runSpacing: 16,
                         children: [
-                          Expanded(child: _buildQuellePieChart()),
-                          Expanded(child: _buildStackedBarStatusPerQuelle()),
-                          Expanded(child: _buildMonthlyBarChart()),
-                          Expanded(child: _buildWeekdayHeatmap()),
-                          Expanded(child: _buildQuoteLineChart()),
-                          if (_zeitraum == Zeitraum.vergleichVorjahr) Expanded(child: _buildCompareWithLastYearChart()),
+                          SizedBox(width: 520, child: _buildQuellePieChart()),
+                          SizedBox(width: 520, child: _buildTypPieChart()),
+                          SizedBox(width: 520, child: _buildStadiumPieChart()),
+                          SizedBox(width: 520, child: _buildStackedBarStatusPerQuelle()),
+                          SizedBox(width: 520, child: _buildMonthlyBarChart()),
+                          SizedBox(width: 520, child: _buildWeekdayHeatmap()),
+                          SizedBox(width: 520, child: _buildQuoteBarChart()),
+                          if (_zeitraum == Zeitraum.vergleichVorjahr) SizedBox(width: 520, child: _buildCompareWithLastYearChart()),
                         ],
                       )
                     : Column(
                         children: [
                           _buildQuellePieChart(),
+                          _buildTypPieChart(),
+                          _buildStadiumPieChart(),
                           _buildStackedBarStatusPerQuelle(),
                           _buildMonthlyBarChart(),
                           _buildWeekdayHeatmap(),
-                          _buildQuoteLineChart(),
+                          _buildQuoteBarChart(),
                           if (_zeitraum == Zeitraum.vergleichVorjahr) _buildCompareWithLastYearChart(),
                         ],
                       ),

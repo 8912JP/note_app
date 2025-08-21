@@ -1,0 +1,8 @@
+HTTP/1.1 200 OK
+date: Thu, 31 Jul 2025 07:58:29 GMT
+server: uvicorn
+content-length: 45
+content-type: application/json
+connection: close
+
+{"status":"ok","message":"Server is running"}

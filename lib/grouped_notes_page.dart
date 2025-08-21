@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import 'note.dart';
 import 'form_page.dart';
 import 'api_service.dart';
+import 'websocket_manager.dart';
 
 class GroupedNotesPage extends StatefulWidget {
   final ApiService apiService;
@@ -21,33 +22,22 @@ class _GroupedNotesPageState extends State<GroupedNotesPage> {
   String _selectedStatus = "all";
   DateTimeRange? _selectedDateRange;
   List<String> _selectedLabelsFilter = [];
+  final bool _wsListenerAdded = false;
 
   @override
   void initState() {
     super.initState();
     apiService = widget.apiService;
     _loadNotes();
-    _setupWebSocket();
+    
+    // Initialisiere WebSocket-Manager und registriere beide Updater (stabile Referenzen)
+    WebSocketManager().initialize();
+    WebSocketManager().registerNotesFullReloadUpdater(_loadNotes);
+    WebSocketManager().registerNotesUpdater(_handleNoteUpdate);
   }
 
   void _setupWebSocket() {
-    apiService.connectToWebSocket(onEvent: (data) async {
-      if (!mounted) return;
-
-      final id = data['id']?.toString();
-      switch (data['event']) {
-        case 'note_updated':
-        case 'note_created':
-          if (id == null) return;
-          final updated = await apiService.fetchNoteById(id);
-          if (updated != null) _updateOrInsertNote(updated);
-          break;
-        case 'note_deleted':
-          if (id == null) return;
-          _removeNoteById(id);
-          break;
-      }
-    });
+    // Diese Methode wird nicht mehr benötigt, da der WebSocket-Manager verwendet wird
   }
 
   Future<void> _loadNotes() async {
@@ -63,6 +53,24 @@ class _GroupedNotesPageState extends State<GroupedNotesPage> {
       });
     } catch (e) {
       debugPrint('Fehler beim Laden: $e');
+    }
+  }
+
+  // Intelligente Note-Update-Behandlung für GroupedNotes
+  void _handleNoteUpdate(Map<String, dynamic> data) {
+    if (!mounted) return;
+    
+    try {
+      final noteData = data['note'] as Map<String, dynamic>?;
+      if (noteData != null) {
+        final updatedNote = Note.fromJson(noteData);
+        
+        // Aktualisiere die Note in der gruppierten Liste
+        _updateOrInsertNote(updatedNote);
+        print("✅ GroupedNote aktualisiert: ${updatedNote.id}");
+      }
+    } catch (e) {
+      print("❌ Fehler beim Aktualisieren der GroupedNote: $e");
     }
   }
 
@@ -97,6 +105,59 @@ class _GroupedNotesPageState extends State<GroupedNotesPage> {
         );
       }
     });
+  }
+
+  @override
+  void dispose() {
+    // Entferne vom WebSocket-Manager (stabile Referenzen)
+    WebSocketManager().unregisterNotesFullReloadUpdater(_loadNotes);
+    WebSocketManager().unregisterNotesUpdater(_handleNoteUpdate);
+    super.dispose();
+  }
+
+  void _handleWebSocketEvent(Map<String, dynamic> data) async {
+    if (!mounted) return;
+
+    // Prüfe ob es eine Pong-Nachricht ist (Heartbeat-Antwort)
+    if (data['type'] == 'pong') {
+      print("↪️ Pong-Nachricht empfangen in GroupedNotes: ${data['timestamp']}");
+      return; // Ignoriere Pong-Nachrichten
+    }
+    
+    // Prüfe ob es ein gültiges Event ist
+    if (data['event'] == null) {
+      print("⚠️ Ungültige WebSocket-Nachricht in GroupedNotes: $data");
+      return;
+    }
+
+    final id = data['id']?.toString();
+    print("📥 Verarbeite WebSocket-Event in GroupedNotes: ${data['event']} für ID: $id");
+    
+    switch (data['event']) {
+      case 'note_updated':
+      case 'note_created':
+        if (data['note'] != null) {
+          final incoming = Note.fromJson(Map<String, dynamic>.from(data['note']));
+          _updateOrInsertNote(incoming);
+          print("✅ Note in GroupedNotes aktualisiert: ${incoming.id}");
+          break;
+        }
+        if (id == null) return;
+        final updated = await apiService.fetchNoteById(id);
+        if (updated != null) {
+          _updateOrInsertNote(updated);
+          print("✅ Note in GroupedNotes nachgeladen: ${updated.id}");
+        }
+        break;
+      case 'note_deleted':
+        if (id == null) return;
+        _removeNoteById(id);
+        print("🗑️ Note in GroupedNotes gelöscht: $id");
+        break;
+      default:
+        print("⚠️ Unbekanntes WebSocket-Event in GroupedNotes: ${data['event']}");
+        break;
+    }
   }
 
   bool _applyFilters(Note note) {
@@ -245,6 +306,20 @@ class _GroupedNotesPageState extends State<GroupedNotesPage> {
       appBar: AppBar(
         title: const Text('Notizen (Gruppiert)'),
         actions: [
+          // Aktueller Benutzer
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8.0),
+            child: Center(
+              child: Text(
+                apiService.loggedInUser ?? 'Nicht eingeloggt',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                  color: Colors.white70,
+                ),
+              ),
+            ),
+          ),
           IconButton(icon: const Icon(Icons.filter_list), onPressed: _showFilterDialog),
         ],
         bottom: PreferredSize(

@@ -1,8 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:web_socket_channel/web_socket_channel.dart';
-import 'package:web_socket_channel/status.dart' as status;
-import 'dart:convert';
 import 'dart:developer';
 
 import 'crm_entry.dart';
@@ -10,11 +7,18 @@ import 'api_service.dart';
 import 'crm_entry_edit_form.dart';
 import 'form_page.dart';
 import 'note.dart';
+import 'websocket_manager.dart';
+import 'note_cache_manager.dart';
+
 
 class CrmEntryProvider extends ChangeNotifier {
   List<CrmEntry> _entries = [];
   String _searchText = '';
   DateTimeRange? _selectedDateRange;
+  String? _selectedRolle;
+  String? _selectedBearbeiter;
+  String? _selectedStatus;
+  DateTimeRange? _selectedWiedervorlageRange;
 
   int sortColumnIndex = 0;
   bool sortAscending = true;
@@ -22,11 +26,40 @@ class CrmEntryProvider extends ChangeNotifier {
   set searchText(String value) {
     _searchText = value;
     notifyListeners();
+    // Aktualisiere Tracking-Icons nach Filterung
+    _updateAllTrackingIcons();
   }
 
   set selectedDateRange(DateTimeRange? range) {
     _selectedDateRange = range;
     notifyListeners();
+    // Aktualisiere Tracking-Icons nach Filterung
+    _updateAllTrackingIcons();
+  }
+
+  set selectedRolle(String? value) {
+    _selectedRolle = value;
+    notifyListeners();
+    // Aktualisiere Tracking-Icons nach Filterung
+    _updateAllTrackingIcons();
+  }
+  set selectedBearbeiter(String? value) {
+    _selectedBearbeiter = value;
+    notifyListeners();
+    // Aktualisiere Tracking-Icons nach Filterung
+    _updateAllTrackingIcons();
+  }
+  set selectedStatus(String? value) {
+    _selectedStatus = value;
+    notifyListeners();
+    // Aktualisiere Tracking-Icons nach Filterung
+    _updateAllTrackingIcons();
+  }
+  set selectedWiedervorlageRange(DateTimeRange? value) {
+    _selectedWiedervorlageRange = value;
+    notifyListeners();
+    // Aktualisiere Tracking-Icons nach Filterung
+    _updateAllTrackingIcons();
   }
 
   List<CrmEntry> get filteredEntries {
@@ -42,6 +75,12 @@ class CrmEntryProvider extends ChangeNotifier {
           return false;
         }
       }
+      if (_selectedRolle != null && _selectedRolle!.isNotEmpty && e.rolle != _selectedRolle) return false;
+      if (_selectedBearbeiter != null && _selectedBearbeiter!.isNotEmpty && e.bearbeiter != _selectedBearbeiter) return false;
+      if (_selectedStatus != null && _selectedStatus!.isNotEmpty && e.status != _selectedStatus) return false;
+      if (_selectedWiedervorlageRange != null) {
+        if (e.wiedervorlage == null || e.wiedervorlage!.isBefore(_selectedWiedervorlageRange!.start) || e.wiedervorlage!.isAfter(_selectedWiedervorlageRange!.end)) return false;
+      }
       return true;
     }).toList();
   }
@@ -49,10 +88,21 @@ class CrmEntryProvider extends ChangeNotifier {
   Future<void> loadEntries(ApiService apiService) async {
     try {
       _entries = await apiService.fetchCrmEntries();
-      _entries.sort((a, b) => (b.anfrageDatum ?? DateTime(1900)).compareTo(a.anfrageDatum ?? DateTime(1900)));
+      // Backend sortiert bereits nach anfrage_datum, aber wir sortieren nochmal zur Sicherheit
+      _entries.sort((a, b) {
+        final aDate = a.anfrageDatum ?? DateTime(1900);
+        final bDate = b.anfrageDatum ?? DateTime(1900);
+        final dateComparison = bDate.compareTo(aDate);
+        if (dateComparison != 0) return dateComparison;
+        // Bei gleichem Datum nach ID sortieren (neueste zuerst)
+        return b.id.compareTo(a.id);
+      });
       sortColumnIndex = 0;
       sortAscending = false;
       notifyListeners();
+      
+      // Aktualisiere alle Tracking-Icons nach dem Laden
+      _updateAllTrackingIcons();
     } catch (e) {
       log("Fehler beim Laden der CRM-Daten: $e");
     }
@@ -110,7 +160,7 @@ class CRMOverviewPage extends StatefulWidget {
 }
 
 class CRMOverviewPageState extends State<CRMOverviewPage> {
-  WebSocketChannel? _channel;
+  void Function(Map<String, dynamic> data)? _notesWsListener;
   DateTimeRange? _selectedDateRange;
 
   bool _initialized = false; // Damit loadEntries & WS nur einmal starten
@@ -122,95 +172,124 @@ class CRMOverviewPageState extends State<CRMOverviewPage> {
     if (!_initialized) {
       final provider = Provider.of<CrmEntryProvider>(context, listen: false);
       provider.loadEntries(widget.apiService);
-      _connectToCrmWebSocket();
+      _registerSharedWebSocketListener();
       _initialized = true;
     }
   }
 
-  void _connectToCrmWebSocket() {
-    if (_channel != null) return; // Verhindere Mehrfachverbindungen
-
-    final token = widget.apiService.accessToken;
-    if (token == null) {
-      log("❌ Kein Token für WebSocket");
-      return;
-    }
-
-    final uri = Uri.parse('ws://iqmedix.cloud:8000/ws/crm?token=$token');
-    _channel = WebSocketChannel.connect(uri);
-
-    _channel!.stream.listen(
-      (message) {
-        try {
-          final data = json.decode(message);
-          log("📥 CRM-Event: $data");
-          final event = data['event'];
-          if (event == 'crm_created' || event == 'crm_updated') {
-            final provider = Provider.of<CrmEntryProvider>(context, listen: false);
-            provider.loadEntries(widget.apiService);
-          }
-        } catch (e) {
-          log("❌ Fehler beim Parsen der CRM WebSocket Nachricht: $e");
-        }
-      },
-      onError: (error) {
-        log("❌ WebSocket Fehler: $error");
-      },
-      onDone: () {
-        log("🔌 WebSocket Verbindung geschlossen");
-      },
-    );
+  void _registerSharedWebSocketListener() {
+    // Initialisiere WebSocket-Manager und registriere CRM-Updater
+    WebSocketManager().initialize();
+    WebSocketManager().registerCrmUpdater(() {
+      if (mounted) {
+        final provider = Provider.of<CrmEntryProvider>(context, listen: false);
+        provider.loadEntries(widget.apiService);
+      }
+    });
+    
+    // Debug: Zeige WebSocket-Status
+    WebSocketManager().testWebSocketConnection();
   }
 
   @override
   void dispose() {
-    _channel?.sink.close(status.normalClosure);
+    // Entferne vom WebSocket-Manager
+    WebSocketManager().unregisterCrmUpdater(() {
+      if (mounted) {
+        final provider = Provider.of<CrmEntryProvider>(context, listen: false);
+        provider.loadEntries(widget.apiService);
+      }
+    });
+    
     super.dispose();
   }
 
   void showFilterDialog() {
-    DateTimeRange? tempRange = _selectedDateRange;
-
+    final provider = Provider.of<CrmEntryProvider>(context, listen: false);
+    DateTimeRange? tempRange = provider._selectedDateRange;
+    String? tempRolle = provider._selectedRolle;
+    String? tempBearbeiter = provider._selectedBearbeiter;
+    String? tempStatus = provider._selectedStatus;
+    DateTimeRange? tempWiedervorlage = provider._selectedWiedervorlageRange;
+    final rollen = provider._entries.map((e) => e.rolle ?? '').toSet().where((r) => r.isNotEmpty).toList();
+    final bearbeiter = provider._entries.map((e) => e.bearbeiter ?? '').toSet().where((b) => b.isNotEmpty).toList();
+    final statusList = provider._entries.map((e) => e.status ?? '').toSet().where((s) => s.isNotEmpty).toList();
     showDialog(
       context: context,
       builder: (_) => StatefulBuilder(
         builder: (ctx, setStateDialog) => AlertDialog(
-          title: const Text('Datum filtern'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ElevatedButton(
-                onPressed: () async {
-                  final picked = await showDateRangePicker(
-                    context: ctx,
-                    firstDate: DateTime(2000),
-                    lastDate: DateTime(2100),
-                    initialDateRange: tempRange,
-                  );
-                  if (!mounted) return;
-                  if (picked != null) setStateDialog(() => tempRange = picked);
-                },
-                child: Text(tempRange == null
-                    ? 'Datum auswählen'
-                    : '${tempRange!.start.day}.${tempRange!.start.month}.${tempRange!.start.year} – ${tempRange!.end.day}.${tempRange!.end.month}.${tempRange!.end.year}'),
-              ),
-              if (tempRange != null)
-                TextButton(
-                  onPressed: () {
-                    Provider.of<CrmEntryProvider>(context, listen: false).selectedDateRange = null;
-                    setState(() => _selectedDateRange = null);
-                    Navigator.pop(ctx);
-                  },
-                  child: const Text('Zurücksetzen'),
+          title: const Text('Filter'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                DropdownButtonFormField<String>(
+                  decoration: const InputDecoration(labelText: 'Rolle'),
+                  value: tempRolle,
+                  items: [const DropdownMenuItem(value: '', child: Text('Alle'))] + rollen.map((r) => DropdownMenuItem(value: r, child: Text(r))).toList(),
+                  onChanged: (val) => setStateDialog(() => tempRolle = val),
                 ),
-            ],
+                DropdownButtonFormField<String>(
+                  decoration: const InputDecoration(labelText: 'Bearbeiter'),
+                  value: tempBearbeiter,
+                  items: [const DropdownMenuItem(value: '', child: Text('Alle'))] + bearbeiter.map((b) => DropdownMenuItem(value: b, child: Text(b))).toList(),
+                  onChanged: (val) => setStateDialog(() => tempBearbeiter = val),
+                ),
+                DropdownButtonFormField<String>(
+                  decoration: const InputDecoration(labelText: 'Status'),
+                  value: tempStatus,
+                  items: [const DropdownMenuItem(value: '', child: Text('Alle'))] + statusList.map((s) => DropdownMenuItem(value: s, child: Text(s))).toList(),
+                  onChanged: (val) => setStateDialog(() => tempStatus = val),
+                ),
+                ElevatedButton(
+                  onPressed: () async {
+                    final picked = await showDateRangePicker(
+                      context: ctx,
+                      firstDate: DateTime(2000),
+                      lastDate: DateTime(2100),
+                      initialDateRange: tempWiedervorlage,
+                    );
+                    if (!context.mounted) return;
+                    if (picked != null) setStateDialog(() => tempWiedervorlage = picked);
+                  },
+                  child: Text(tempWiedervorlage == null ? 'Wiedervorlage-Datum wählen' : '${tempWiedervorlage!.start.day}.${tempWiedervorlage!.start.month}.${tempWiedervorlage!.start.year} – ${tempWiedervorlage!.end.day}.${tempWiedervorlage!.end.month}.${tempWiedervorlage!.end.year}'),
+                ),
+                if (tempWiedervorlage != null)
+                  TextButton(
+                    onPressed: () => setStateDialog(() => tempWiedervorlage = null),
+                    child: const Text('Wiedervorlage zurücksetzen'),
+                  ),
+                ElevatedButton(
+                  onPressed: () async {
+                    final picked = await showDateRangePicker(
+                      context: ctx,
+                      firstDate: DateTime(2000),
+                      lastDate: DateTime(2100),
+                      initialDateRange: tempRange,
+                    );
+                    if (!context.mounted) return;
+                    if (picked != null) setStateDialog(() => tempRange = picked);
+                  },
+                  child: Text(tempRange == null ? 'Anfragedatum wählen' : '${tempRange!.start.day}.${tempRange!.start.month}.${tempRange!.start.year} – ${tempRange!.end.day}.${tempRange!.end.month}.${tempRange!.end.year}'),
+                ),
+                if (tempRange != null)
+                  TextButton(
+                    onPressed: () => setStateDialog(() => tempRange = null),
+                    child: const Text('Anfragedatum zurücksetzen'),
+                  ),
+              ],
+            ),
           ),
           actions: [
             TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Abbrechen')),
             TextButton(
               onPressed: () {
-                Provider.of<CrmEntryProvider>(context, listen: false).selectedDateRange = tempRange;
-                setState(() => _selectedDateRange = tempRange);
+                provider.selectedRolle = tempRolle == '' ? null : tempRolle;
+                provider.selectedBearbeiter = tempBearbeiter == '' ? null : tempBearbeiter;
+                provider.selectedStatus = tempStatus == '' ? null : tempStatus;
+                provider.selectedWiedervorlageRange = tempWiedervorlage;
+                provider.selectedDateRange = tempRange;
+                setState(() {});
                 Navigator.pop(ctx);
               },
               child: const Text('Anwenden'),
@@ -230,6 +309,45 @@ class CRMOverviewPageState extends State<CRMOverviewPage> {
           IconButton(
             icon: const Icon(Icons.filter_alt),
             onPressed: showFilterDialog,
+          ),
+          IconButton(
+            icon: const Icon(Icons.sort_by_alpha),
+            tooltip: 'Nach Status "Offen", "Auto Email" und Datum sortieren',
+            onPressed: () {
+              final provider = Provider.of<CrmEntryProvider>(context, listen: false);
+              provider._entries.sort((a, b) {
+                // Zuerst nach Status 'Offen' und 'Auto Email' (beide nach oben), dann nach anfrageDatum absteigend
+                final aStatus = (a.status ?? '').toLowerCase();
+                final bStatus = (b.status ?? '').toLowerCase();
+                final aIsOffen = aStatus == 'offen';
+                final bIsOffen = bStatus == 'offen';
+                final aIsAutoEmail = aStatus == 'auto email';
+                final bIsAutoEmail = bStatus == 'auto email';
+                
+                // Priorität: Offen > Auto Email > andere
+                if (aIsOffen && !bIsOffen) return -1;
+                if (!aIsOffen && bIsOffen) return 1;
+                if (aIsAutoEmail && !bIsAutoEmail && !bIsOffen) return -1;
+                if (!aIsAutoEmail && bIsAutoEmail && !aIsOffen) return 1;
+                
+                final aDate = a.anfrageDatum ?? DateTime(1900);
+                final bDate = b.anfrageDatum ?? DateTime(1900);
+                return bDate.compareTo(aDate);
+              });
+              provider.notifyListeners();
+            },
+          ),
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            tooltip: 'Aktualisieren',
+            onPressed: () async {
+              final provider = Provider.of<CrmEntryProvider>(context, listen: false);
+              await provider.loadEntries(widget.apiService);
+              // Markiere CRM als gesehen (entferne rote Punkte)
+              widget.apiService.notificationService.markCrmAsSeen();
+              // Aktualisiere alle Tracking-Icons
+              _updateAllTrackingIcons();
+            },
           ),
         ],
         bottom: PreferredSize(
@@ -292,6 +410,7 @@ class CrmDataTableWrapper extends StatelessWidget {
                 ),
               ),
               child: PaginatedDataTable(
+                showCheckboxColumn: false,
                 columnSpacing: 8,
                 rowsPerPage: 10,
                 sortColumnIndex: provider.sortColumnIndex,
@@ -312,24 +431,19 @@ class CrmDataTableWrapper extends StatelessWidget {
       DataColumn(label: const Text('Anrede'), onSort: (i, a) => provider.sortBy(i, (e) => e.titel ?? '', a)),
       DataColumn(label: const Text('Vorname'), onSort: (i, a) => provider.sortBy(i, (e) => e.vorname ?? '', a)),
       DataColumn(label: const Text('Nachname'), onSort: (i, a) => provider.sortBy(i, (e) => e.nachname ?? '', a)),
+      DataColumn(label: const Text('Rolle'), onSort: (i, a) => provider.sortBy(i, (e) => e.rolle ?? '', a)),
       DataColumn(label: const Text('Adresse'), onSort: (i, a) => provider.sortBy(i, (e) => [e.strasse ?? '', e.hausnummer ?? '', e.plz ?? '', e.ort ?? '', e.land ?? ''].where((v) => v.isNotEmpty).join(' '), a)),
-      DataColumn(label: const Text('E-Mail'), onSort: (i, a) => provider.sortBy(i, (e) => e.email ?? '', a)),
-      DataColumn(label: const Text('Mobil'), onSort: (i, a) => provider.sortBy(i, (e) => e.mobil ?? '', a)),
-      DataColumn(label: const Text('Festnetz'), onSort: (i, a) => provider.sortBy(i, (e) => e.festnetz ?? '', a)),
-      DataColumn(label: const Text('Typ'), onSort: (i, a) => provider.sortBy(i, (e) => e.typ ?? '-', a)),
-      DataColumn(label: const Text('Stadium'), onSort: (i, a) => provider.sortBy(i, (e) => e.stadium ?? '', a)),
-      DataColumn(label: const Text('Krankheitsstatus'), onSort: (i, a) => provider.sortBy(i, (e) => (e.krankheitsstatus ?? '').length, a)),
+      DataColumn(label: const Text('Kontakt'), onSort: (i, a) => provider.sortBy(i, (e) => (e.email ?? '') + (e.mobil ?? '') + (e.festnetz ?? ''), a)),
+      DataColumn(label: const Text('Typ / Stadium'), onSort: (i, a) => provider.sortBy(i, (e) => ((e.typ ?? '') + (e.stadium ?? '')), a)),
+      DataColumn(label: const Text('Kommentar'), onSort: (i, a) => provider.sortBy(i, (e) => (e.krankheitsstatus ?? '').length, a)),
+      DataColumn(label: const Text('Nachricht'), onSort: (i, a) => provider.sortBy(i, (e) => (e.infos ?? '') + (e.nachricht ?? ''), a)),
       DataColumn(label: const Text('ToDos'), onSort: (i, a) => provider.sortBy(i, (e) => e.todos.length, a)),
       DataColumn(label: const Text('Bearbeiter'), onSort: (i, a) => provider.sortBy(i, (e) => e.bearbeiter ?? '', a)),
       DataColumn(label: const Text('Kontaktquelle'), onSort: (i, a) => provider.sortBy(i, (e) => e.kontaktquelle ?? '', a)),
       DataColumn(label: const Text('Status'), onSort: (i, a) => provider.sortBy(i, (e) => e.status ?? '', a)),
       DataColumn(label: const Text('Wiedervorlage'), onSort: (i, a) => provider.sortBy(i, (e) => e.wiedervorlage ?? DateTime(1900), a)),
-      // Infos und Nachricht jetzt vor Verfolgung und Aktionen:
-      DataColumn(label: const Text('Infos'), onSort: (i, a) => provider.sortBy(i, (e) => e.infos ?? '', a)),
-      DataColumn(label: const Text('Nachricht'), onSort: (i, a) => provider.sortBy(i, (e) => e.nachricht ?? '', a)),
-      // Verfolgungsspalte jetzt nach Infos/Nachricht:
       DataColumn(label: const Text('Verfolgung')),
-      const DataColumn(label: Text('Aktionen')),
+      const DataColumn(label: Text(' ')),
     ];
   }
 }
@@ -380,95 +494,73 @@ class CrmDataSource extends DataTableSource {
     final e = entries[index];
 
     final adresse = [e.strasse ?? '', e.hausnummer ?? '', e.plz ?? '', e.ort ?? '', e.land ?? ''].where((v) => v.isNotEmpty).join(' ');
+    final isCompleted = (e.status ?? '').toLowerCase() == 'einsender' || (e.status ?? '').toLowerCase() == 'nicht einsender';
+    
     return DataRow.byIndex(
       index: index,
-      // Kein spezieller Hintergrund mehr für abgeschlossene Zeilen
+      onSelectChanged: (selected) {
+        if (selected == true) {
+          Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (_) => CrmEntryEditForm(
+                existingEntry: e,
+                currentUser: ApiService().loggedInUser ?? 'Unbekannt',
+              ),
+            ),
+          );
+        }
+      },
+
       cells: [
+        DataCell(
+          Row(
+            children: [
+              if (isCompleted)
+                const Padding(
+                  padding: EdgeInsets.only(right: 4),
+                  child: Icon(Icons.check_circle, color: Colors.green, size: 16),
+                ),
+              Expanded(child: _wrapText(_formatDate(e.anfrageDatum))),
+            ],
+          ),
+        ),
+        DataCell(_wrapText(e.titel ?? '')),
+        DataCell(_wrapText(e.vorname ?? '')),
+        DataCell(_wrapText(e.nachname ?? '')),
+        DataCell(_wrapText(e.rolle ?? '')),
+        DataCell(
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if ((e.strasse ?? '').isNotEmpty || (e.hausnummer ?? '').isNotEmpty)
+                _wrapText('${e.strasse ?? ''} ${e.hausnummer ?? ''}'.trim(), maxLines: 1),
+              if ((e.plz ?? '').isNotEmpty || (e.ort ?? '').isNotEmpty)
+                _wrapText('${e.plz ?? ''} ${e.ort ?? ''}'.trim(), maxLines: 1),
+              if ((e.land ?? '').isNotEmpty)
+                _wrapText(e.land ?? '', maxLines: 1),
+            ],
+          ),
+        ),
+        DataCell(_buildContactInfo(e.email, e.mobil, e.festnetz)),
         DataCell(_wrapText(
-          _formatDate(e.anfrageDatum),
-          textStyle: (e.status ?? '').toLowerCase() == 'abgeschlossen'
-              ? const TextStyle(color: Colors.grey)
-              : null,
+          ((e.typ ?? '').isNotEmpty && (e.stadium ?? '').isNotEmpty)
+            ? '${e.typ} / ${e.stadium}'
+            : (e.typ ?? '') + (e.stadium ?? ''),
         )),
-        DataCell(_wrapText(e.titel ?? '',
-          textStyle: (e.status ?? '').toLowerCase() == 'abgeschlossen'
-              ? const TextStyle(color: Colors.grey)
-              : null,
-        )),
-        DataCell(_wrapText(e.vorname ?? '',
-          textStyle: (e.status ?? '').toLowerCase() == 'abgeschlossen'
-              ? const TextStyle(color: Colors.grey)
-              : null,
-        )),
-        DataCell(_wrapText(e.nachname ?? '',
-          textStyle: (e.status ?? '').toLowerCase() == 'abgeschlossen'
-              ? const TextStyle(color: Colors.grey)
-              : null,
-        )),
-        DataCell(_wrapText(adresse,
-          textStyle: (e.status ?? '').toLowerCase() == 'abgeschlossen'
-              ? const TextStyle(color: Colors.grey)
-              : null,
-        )),
-        DataCell(_wrapText(e.email ?? '',
-          textStyle: (e.status ?? '').toLowerCase() == 'abgeschlossen'
-              ? const TextStyle(color: Colors.grey)
-              : null,
-        )),
-        DataCell(_wrapText(e.mobil ?? '',
-          textStyle: (e.status ?? '').toLowerCase() == 'abgeschlossen'
-              ? const TextStyle(color: Colors.grey)
-              : null,
-        )),
-        DataCell(_wrapText(e.festnetz ?? '',
-          textStyle: (e.status ?? '').toLowerCase() == 'abgeschlossen'
-              ? const TextStyle(color: Colors.grey)
-              : null,
-        )),
-        DataCell(_wrapText(e.typ ?? '-',
-          textStyle: (e.status ?? '').toLowerCase() == 'abgeschlossen'
-              ? const TextStyle(color: Colors.grey)
-              : null,
-        )),
-        DataCell(_wrapText(e.stadium ?? '',
-          textStyle: (e.status ?? '').toLowerCase() == 'abgeschlossen'
-              ? const TextStyle(color: Colors.grey)
-              : null,
-        )),
-        DataCell(_wrapText(e.krankheitsstatus ?? '',
-          textStyle: (e.status ?? '').toLowerCase() == 'abgeschlossen'
-              ? const TextStyle(color: Colors.grey)
-              : null,
-        )),
-        DataCell(_wrapText(e.todoSummary,
-          textStyle: (e.status ?? '').toLowerCase() == 'abgeschlossen'
-              ? const TextStyle(color: Colors.grey)
-              : null,
-        )),
-        DataCell(_wrapText(e.bearbeiter ?? '',
-          textStyle: (e.status ?? '').toLowerCase() == 'abgeschlossen'
-              ? const TextStyle(color: Colors.grey)
-              : null,
-        )),
-        DataCell(_wrapText(e.kontaktquelle ?? '',
-          textStyle: (e.status ?? '').toLowerCase() == 'abgeschlossen'
-              ? const TextStyle(color: Colors.grey)
-              : null,
-        )),
-        DataCell(_wrapText(e.status ?? '',
-          textStyle: (e.status ?? '').toLowerCase() == 'abgeschlossen'
-              ? const TextStyle(color: Colors.grey)
-              : null,
-        )),
+        DataCell(_wrapText(e.krankheitsstatus ?? '')),
+        DataCell(_wrapText(_combineInfosAndNachricht(e.infos, e.nachricht))),
+        DataCell(_wrapText(e.todoSummary)),
+                DataCell(_wrapText(e.bearbeiter ?? '')),
+        DataCell(_wrapText(e.kontaktquelle ?? '')),
+        DataCell(_wrapText(e.status ?? '')),
         DataCell(
           Row(
             children: [
               Text(
                 _formatDate(e.wiedervorlage),
                 style: TextStyle(
-                  color: (e.status ?? '').toLowerCase() == 'abgeschlossen'
-                      ? Colors.grey
-                      : (_isDueDate(e.wiedervorlage) ? Colors.red : Colors.black),
+                  color: _isDueDate(e.wiedervorlage) ? Colors.red : Colors.black,
                   fontWeight: _isDueDate(e.wiedervorlage) ? FontWeight.bold : FontWeight.normal,
                 ),
               ),
@@ -481,17 +573,6 @@ class CrmDataSource extends DataTableSource {
           ),
         ),
         // Infos und Nachricht jetzt vor Verfolgung und Aktionen:
-        DataCell(_wrapText(e.infos ?? '',
-          textStyle: (e.status ?? '').toLowerCase() == 'abgeschlossen'
-              ? const TextStyle(color: Colors.grey)
-              : null,
-        )),
-        DataCell(_wrapText(e.nachricht ?? '',
-          textStyle: (e.status ?? '').toLowerCase() == 'abgeschlossen'
-              ? const TextStyle(color: Colors.grey)
-              : null,
-        )),
-        // Verfolgungsspalte jetzt nach Infos/Nachricht:
         DataCell(
           Row(
             children: [
@@ -520,36 +601,48 @@ class CrmDataSource extends DataTableSource {
           ),
         ),
         DataCell(
-          Row(
-            children: [
-              IconButton(
-                icon: const Icon(Icons.edit),
-                onPressed: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => CrmEntryEditForm(
-                        existingEntry: e,
-                        currentUser: ApiService().loggedInUser ?? 'Unbekannt',
-                      ),
+          PopupMenuButton<String>(
+            onSelected: (value) {
+              if (value == 'edit') {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => CrmEntryEditForm(
+                      existingEntry: e,
+                      currentUser: ApiService().loggedInUser ?? 'Unbekannt',
                     ),
-                  );
-                },
+                  ),
+                );
+              } else if (value == 'note') {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => FormPage(fromCrmEntry: e),
+                  ),
+                );
+              } else if (value == 'delete') {
+                _deleteCrmEntry(context, e);
+              }
+            },
+            itemBuilder: (context) => [
+              const PopupMenuItem(
+                value: 'edit',
+                child: ListTile(
+                  leading: Icon(Icons.edit),
+                  title: Text('Bearbeiten'),
+                ),
               ),
-              IconButton(
-                icon: const Icon(Icons.note_add),
-                tooltip: 'Notiz aus CRM erstellen',
-                onPressed: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => FormPage(fromCrmEntry: e),
-                    ),
-                  );
-                },
+              const PopupMenuItem(
+                value: 'note',
+                child: ListTile(
+                  leading: Icon(Icons.note_add),
+                  title: Text('Notiz aus CRM erstellen'),
+                ),
               ),
-              IconButton(
-                icon: const Icon(Icons.delete),
-                tooltip: 'Löschen',
-                onPressed: () => _deleteCrmEntry(context, e),
+              const PopupMenuItem(
+                value: 'delete',
+                child: ListTile(
+                  leading: Icon(Icons.delete),
+                  title: Text('Löschen'),
+                ),
               ),
             ],
           ),
@@ -558,15 +651,30 @@ class CrmDataSource extends DataTableSource {
     );
   }
 
-  static Widget _wrapText(String text, {double minWidth = 80, double maxWidth = 170, int maxLines = 6, TextStyle? textStyle}) {
+  static Widget _wrapText(String text, {double minWidth = 0, double? maxWidth, int maxLines = 6, TextStyle? textStyle}) {
+    final screenWidth = WidgetsBinding.instance.platformDispatcher.views.first.physicalSize.width /
+        WidgetsBinding.instance.platformDispatcher.views.first.devicePixelRatio;
+    double effectiveMaxWidth;
+    double effectiveFontSize;
+    if (screenWidth < 1500) {
+      effectiveMaxWidth = 70;
+      effectiveFontSize = 10.0;
+    } else if (screenWidth < 2000) {
+      effectiveMaxWidth = 90;
+      effectiveFontSize = 11.0;
+    } else {
+      effectiveMaxWidth = maxWidth ?? 170;
+      effectiveFontSize = 14.0;
+    }
+    final effectiveMinWidth = minWidth.clamp(0, effectiveMaxWidth).toDouble();
     return ConstrainedBox(
-      constraints: BoxConstraints(minWidth: minWidth, maxWidth: maxWidth),
+      constraints: BoxConstraints(minWidth: effectiveMinWidth, maxWidth: effectiveMaxWidth),
       child: Text(
         text,
         overflow: TextOverflow.ellipsis,
         softWrap: true,
         maxLines: maxLines,
-        style: textStyle ?? const TextStyle(height: 1.4),
+        style: (textStyle ?? const TextStyle(height: 1.4)).copyWith(fontSize: effectiveFontSize),
       ),
     );
   }
@@ -591,6 +699,79 @@ class CrmDataSource extends DataTableSource {
   final today = DateTime(now.year, now.month, now.day);
   return !date.isAfter(today);
 }
+
+  // Hilfsfunktion zum Erstellen von Kontaktinformationen mit Icons
+  Widget _buildContactInfo(String? email, String? mobil, String? festnetz) {
+    final emailText = email?.trim() ?? '';
+    final mobilText = mobil?.trim() ?? '';
+    final festnetzText = festnetz?.trim() ?? '';
+    
+    final List<Widget> contactWidgets = [];
+    
+    if (emailText.isNotEmpty) {
+      contactWidgets.add(_wrapText(emailText, maxLines: 1));
+    }
+    
+    if (mobilText.isNotEmpty) {
+      contactWidgets.add(
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.phone_android, size: 14, color: Colors.grey[600]),
+            SizedBox(width: 4),
+            Expanded(child: _wrapText(mobilText, maxLines: 1)),
+          ],
+        ),
+      );
+    }
+    
+    if (festnetzText.isNotEmpty) {
+      contactWidgets.add(
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.phone, size: 14, color: Colors.grey[600]),
+            SizedBox(width: 4),
+            Expanded(child: _wrapText(festnetzText, maxLines: 1)),
+          ],
+        ),
+      );
+    }
+    
+    if (contactWidgets.isEmpty) {
+      return _wrapText('-');
+    }
+    
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: contactWidgets,
+    );
+  }
+}
+
+// Globale Liste aller aktiven Tracking-Icons für manuelle Updates
+final Set<_TrackingIconState> _activeTrackingIcons = <_TrackingIconState>{};
+
+// Globale Funktion um alle Tracking-Icons zu aktualisieren
+void _updateAllTrackingIcons() {
+  // Verzögerte Aktualisierung um sicherzustellen, dass die UI aktualisiert wurde
+  Future.delayed(const Duration(milliseconds: 100), () {
+    for (final icon in _activeTrackingIcons) {
+      if (icon.mounted && !icon._disposed) {
+        icon._updateIcon();
+      }
+    }
+  });
+}
+
+// Aktualisiere Note-Cache bei WebSocket-Events
+void _updateNoteCache(Note? note, String crmEntryId, String trackingType) {
+  if (note != null) {
+    NoteCacheManager().updateNote(note);
+  } else {
+    NoteCacheManager().removeNote(crmEntryId, trackingType);
+  }
 }
 
 class _TrackingIcon extends StatefulWidget {
@@ -621,14 +802,61 @@ class _TrackingIcon extends StatefulWidget {
 class _TrackingIconState extends State<_TrackingIcon> {
   Note? _note;
   bool _loading = false;
+  bool _disposed = false;
 
   @override
   void initState() {
     super.initState();
-    _fetchNote();
+    _activeTrackingIcons.add(this);
+    
+    // Initialisiere WebSocket-Manager und registriere einfachen Updater
+    WebSocketManager().initialize();
+    WebSocketManager().registerTrackingIconUpdater(_updateIcon);
+    
+    // Lade initial Note-Status
+    _loadNoteStatus();
+    
+    // Debug: Zeige WebSocket-Status für Tracking-Icon
+    print("🔍 Tracking-Icon initialisiert für ${widget.trackingType} (CRM-ID: ${widget.crmEntryId})");
   }
 
-  Future<void> _fetchNote() async {
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Aktualisiere Icon-Status wenn Widget sichtbar wird (z.B. nach Filterung)
+    _updateIcon();
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    _activeTrackingIcons.remove(this);
+    
+    // Verwende verzögerte Entfernung um WebSocket-Überlastung zu vermeiden
+    WebSocketManager().unregisterTrackingIconUpdaterDelayed(_updateIcon);
+    
+    super.dispose();
+  }
+
+  // Einfache Methode zum Aktualisieren der Icon-Farbe
+  void _updateIcon() {
+    if (!mounted || _disposed) return;
+    // Verwende Cache-Wert vom NoteCacheManager
+    _note = NoteCacheManager().getNote(widget.crmEntryId, widget.trackingType);
+    setState(() {}); // Trigger Rebuild - Farbe wird automatisch neu berechnet
+  }
+
+  // Lade Note-Status nur einmal beim Start
+  Future<void> _loadNoteStatus() async {
+    if (!mounted || _disposed) return;
+    
+    // Prüfe zuerst Cache
+    if (NoteCacheManager().hasNote(widget.crmEntryId, widget.trackingType)) {
+      _note = NoteCacheManager().getNote(widget.crmEntryId, widget.trackingType);
+      setState(() {});
+      return;
+    }
+    
     setState(() => _loading = true);
     try {
       final notes = await ApiService().fetchNotes();
@@ -640,11 +868,17 @@ class _TrackingIconState extends State<_TrackingIcon> {
       } catch (_) {
         note = null;
       }
-      setState(() => _note = note);
+      
+      // Speichere in Cache
+      if (note != null) {
+        NoteCacheManager().updateNote(note);
+      }
+      
+      if (mounted && !_disposed) setState(() => _note = note);
     } catch (_) {
-      setState(() => _note = null);
+      if (mounted && !_disposed) setState(() => _note = null);
     } finally {
-      setState(() => _loading = false);
+      if (mounted && !_disposed) setState(() => _loading = false);
     }
   }
 
@@ -670,7 +904,7 @@ class _TrackingIconState extends State<_TrackingIcon> {
       );
       if (result != null) {
         // Nach Rückkehr immer neu laden, damit Status/Farbe stimmt
-        await _fetchNote();
+        await _loadNoteStatus();
       }
     } else {
       // Notiz bearbeiten
@@ -685,7 +919,7 @@ class _TrackingIconState extends State<_TrackingIcon> {
       );
       if (result != null) {
         // Nach Rückkehr immer neu laden, damit Status/Farbe stimmt
-        await _fetchNote();
+        await _loadNoteStatus();
       }
     }
   }
@@ -701,3 +935,26 @@ class _TrackingIconState extends State<_TrackingIcon> {
     );
   }
 }
+
+// Hilfsfunktion zum Kombinieren von Infos und Nachricht
+String _combineInfosAndNachricht(String? infos, String? nachricht) {
+  final infosText = infos?.trim() ?? '';
+  final nachrichtText = nachricht?.trim() ?? '';
+  
+  if (infosText.isEmpty && nachrichtText.isEmpty) {
+    return '';
+  }
+  
+  if (infosText.isEmpty) {
+    return nachrichtText;
+  }
+  
+  if (nachrichtText.isEmpty) {
+    return infosText;
+  }
+  
+  // Kombiniere Infos und Nachricht mit Zeilenumbruch
+  return '$infosText\n$nachrichtText';
+}
+
+

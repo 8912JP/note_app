@@ -18,7 +18,7 @@ ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 1440  # Zeit die nach der man sich wieder anmelden muss
 
 # FastAPI OAuth2-Scheme für REST-Endpunkte
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/token", auto_error=True)
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
@@ -49,6 +49,9 @@ def authenticate_user(db: Session, username: str, password: str):
     user = get_user_by_username(db, username)
     if not user or not verify_password(password, user.hashed_password):
         return None
+    # Prüfe ob Benutzer aktiviert ist
+    if not user.is_active:
+        return None
     return user
 
 
@@ -70,6 +73,7 @@ def get_current_user(
         detail="Token ungültig oder abgelaufen",
         headers={"WWW-Authenticate": "Bearer"},
     )
+    
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         username: str = payload.get("sub")
@@ -81,6 +85,15 @@ def get_current_user(
     user = get_user_by_username(db, username)
     if not user:
         raise credentials_exception
+    
+    # Prüfe ob Benutzer aktiviert ist
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Benutzer ist nicht aktiviert",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
     return user
 
 

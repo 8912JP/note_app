@@ -6,6 +6,8 @@ import 'api_service.dart';
 import 'crm_overview_page.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'statistik_page.dart';
+import 'notification_indicator.dart';
+import 'websocket_manager.dart';
 
 class NotesHomePage extends StatefulWidget {
   final ApiService apiService;
@@ -23,11 +25,45 @@ class _NotesHomePageState extends State<NotesHomePage> with SingleTickerProvider
   void initState() {
     super.initState();
     _tabController = TabController(length: 4, vsync: this);
+    
+    // Registriere Notification-Callbacks
+    widget.apiService.notificationService.setNoteNotificationCallback(() {
+      if (mounted) setState(() {});
+    });
+    widget.apiService.notificationService.setCrmNotificationCallback(() {
+      if (mounted) setState(() {});
+    });
+    
+    // Listener für Tab-Wechsel
+    _tabController.addListener(_onTabChanged);
+  }
+  
+  void _onTabChanged() {
+    if (!_tabController.indexIsChanging) {
+      // Markiere Notifications als gesehen basierend auf aktivem Tab
+      switch (_tabController.index) {
+        case 0: // Notizen
+        case 1: // Gruppiert
+          widget.apiService.notificationService.markNotesAsSeen();
+          break;
+        case 2: // CRM
+          widget.apiService.notificationService.markCrmAsSeen();
+          // Bereinige Tracking-Icon-Updater schrittweise beim Wechsel zur CRM-Seite
+          WebSocketManager().cleanupTrackingIconUpdatersGradually();
+          break;
+      }
+    }
   }
 
   @override
   void dispose() {
+    _tabController.removeListener(_onTabChanged);
     _tabController.dispose();
+    
+    // Entferne Notification-Callbacks
+    widget.apiService.notificationService.removeNoteNotificationCallback();
+    widget.apiService.notificationService.removeCrmNotificationCallback();
+    
     super.dispose();
   }
 
@@ -53,13 +89,59 @@ class _NotesHomePageState extends State<NotesHomePage> with SingleTickerProvider
             ),
           ],
         ),
+        actions: [
+          // Benutzer-Avatar rechtsbündig
+          Container(
+            margin: const EdgeInsets.only(right: 16),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              color: Colors.blue[600],
+              borderRadius: BorderRadius.circular(20),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.1),
+                  blurRadius: 4,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.person,
+                  color: Colors.white,
+                  size: 16,
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  widget.apiService.loggedInUser ?? 'Gast',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
         bottom: TabBar(
           controller: _tabController,
-          tabs: const [
-            Tab(text: 'Notizen'),
-            Tab(text: 'Gruppiert'),
-            Tab(text: 'CRM'),
-            Tab(text: 'Statistik'),
+          tabs: [
+            NoteNotificationIndicator(
+              notificationService: widget.apiService.notificationService,
+              child: const Tab(text: 'Notizen'),
+            ),
+            NoteNotificationIndicator(
+              notificationService: widget.apiService.notificationService,
+              child: const Tab(text: 'Gruppiert'),
+            ),
+            CrmNotificationIndicator(
+              notificationService: widget.apiService.notificationService,
+              child: const Tab(text: 'CRM'),
+            ),
+            const Tab(text: 'Statistik'),
           ],
         ),
       ),

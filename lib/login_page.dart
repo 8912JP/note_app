@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'api_service.dart';
 import 'register_page.dart';
 import 'notes_home_page.dart';
+import 'debug_page.dart';
 
 class LoginPage extends StatefulWidget {
   final ApiService apiService;
@@ -26,7 +27,18 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   Future<void> _checkServer() async {
-    final ok = await widget.apiService.checkServerStatus();
+    print("🔄 Starte Server-Status-Check...");
+    
+    // Versuche zuerst den normalen Status-Check
+    bool ok = await widget.apiService.checkServerStatus();
+    
+    // Falls der normale Check fehlschlägt, versuche alternative Endpoints
+    if (!ok) {
+      print("⚠️ Normaler Status-Check fehlgeschlagen, versuche alternative Endpoints...");
+      ok = await widget.apiService.checkServerStatusAlternative();
+    }
+    
+    print("📊 Finaler Server-Status: $ok");
     setState(() => _serverOnline = ok);
   }
 
@@ -114,6 +126,21 @@ class _LoginPageState extends State<LoginPage> {
                 );
               },
               child: const Text('Neu hier? Registrieren'),
+            ),
+            
+            const SizedBox(height: 20),
+            
+            TextButton(
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) =>
+                        DebugPage(apiService: widget.apiService),
+                  ),
+                );
+              },
+              child: const Text('Debug Information'),
             ),
           ],
         ),
