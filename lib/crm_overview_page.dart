@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'dart:developer';
+import 'dart:io';
 
 import 'crm_entry.dart';
 import 'api_service.dart';
@@ -542,7 +543,7 @@ class CrmDataSource extends DataTableSource {
             ],
           ),
         ),
-        DataCell(_buildContactInfo(e.email, e.mobil, e.festnetz)),
+                 DataCell(_buildContactInfo(e.email, e.mobil, e.festnetz, e.nachname, e.titel)),
         DataCell(_wrapText(
           ((e.typ ?? '').isNotEmpty && (e.stadium ?? '').isNotEmpty)
             ? '${e.typ} / ${e.stadium}'
@@ -700,17 +701,38 @@ class CrmDataSource extends DataTableSource {
   return !date.isAfter(today);
 }
 
-  // Hilfsfunktion zum Erstellen von Kontaktinformationen mit Icons
-  Widget _buildContactInfo(String? email, String? mobil, String? festnetz) {
-    final emailText = email?.trim() ?? '';
-    final mobilText = mobil?.trim() ?? '';
-    final festnetzText = festnetz?.trim() ?? '';
-    
-    final List<Widget> contactWidgets = [];
-    
-    if (emailText.isNotEmpty) {
-      contactWidgets.add(_wrapText(emailText, maxLines: 1));
-    }
+     // Hilfsfunktion zum Erstellen von Kontaktinformationen mit Icons
+   Widget _buildContactInfo(String? email, String? mobil, String? festnetz, String? nachname, String? titel) {
+     final emailText = email?.trim() ?? '';
+     final mobilText = mobil?.trim() ?? '';
+     final festnetzText = festnetz?.trim() ?? '';
+     
+     final List<Widget> contactWidgets = [];
+     
+     if (emailText.isNotEmpty) {
+       contactWidgets.add(
+         GestureDetector(
+           onTap: () => _launchEmail(emailText, nachname, titel),
+           child: Row(
+             mainAxisSize: MainAxisSize.min,
+             children: [
+               Icon(Icons.email, size: 14, color: Colors.blue[600]),
+               SizedBox(width: 4),
+               Expanded(
+                 child: _wrapText(
+                   emailText, 
+                   maxLines: 1,
+                   textStyle: TextStyle(
+                     color: Colors.blue[600],
+                     decoration: TextDecoration.underline,
+                   ),
+                 ),
+               ),
+             ],
+           ),
+         ),
+       );
+     }
     
     if (mobilText.isNotEmpty) {
       contactWidgets.add(
@@ -742,13 +764,68 @@ class CrmDataSource extends DataTableSource {
       return _wrapText('-');
     }
     
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
-      children: contactWidgets,
-    );
-  }
-}
+         return Column(
+       crossAxisAlignment: CrossAxisAlignment.start,
+       mainAxisSize: MainAxisSize.min,
+       children: contactWidgets,
+     );
+   }
+
+   // Funktion zum Öffnen des E-Mail-Clients
+   Future<void> _launchEmail(String email, String? nachname, String? titel) async {
+     try {
+       // Erstelle personalisierte Anrede basierend auf Titel und Nachname
+       String anrede = 'Sehr geehrte Damen und Herren';
+       if (titel != null && titel.isNotEmpty && nachname != null && nachname.isNotEmpty) {
+         anrede = 'Guten Tag $titel $nachname';
+       } else if (nachname != null && nachname.isNotEmpty) {
+         anrede = 'Guten Tag $nachname';
+       }
+       
+       // Erstelle E-Mail-URL mit Betreff und Nachricht
+       final subject = 'iQMedix - Rückmeldung zu Ihrer Anfrage';
+       final body = '$anrede,\n\nvielen Dank für Ihre Anfrage.\n\n';
+       
+       print('DEBUG: Anrede: $anrede'); // Debug-Ausgabe für Anrede
+       print('DEBUG: Body: $body'); // Debug-Ausgabe für Body
+       
+       // Manuelle URL-Konstruktion mit korrekter Kodierung
+       final encodedSubject = Uri.encodeComponent(subject);
+       final encodedBody = Uri.encodeComponent(body);
+       final mailtoUrl = 'mailto:$email?subject=$encodedSubject&body=$encodedBody';
+       
+       print('DEBUG: Mailto URL: $mailtoUrl'); // Debug-Ausgabe
+       
+       if (Platform.isWindows) {
+         // Windows-spezifische Lösung mit PowerShell (bessere URL-Unterstützung)
+         final result = await Process.run('powershell', ['-Command', 'Start-Process "$mailtoUrl"']);
+         if (result.exitCode != 0) {
+           // Fallback: Versuche mit cmd und Anführungszeichen
+           final fallbackResult = await Process.run('cmd', ['/c', 'start', '""', mailtoUrl]);
+           if (fallbackResult.exitCode != 0) {
+             throw Exception('E-Mail-Client konnte nicht geöffnet werden');
+           }
+         }
+       } else {
+         // Fallback für andere Plattformen
+         final result = await Process.run('xdg-open', [mailtoUrl]);
+         if (result.exitCode != 0) {
+           throw Exception('E-Mail-Client konnte nicht geöffnet werden');
+         }
+       }
+     } catch (e) {
+       // Fallback: Zeige Snackbar mit Fehlermeldung
+       if (context.mounted) {
+         ScaffoldMessenger.of(context).showSnackBar(
+           SnackBar(
+             content: Text('E-Mail-Client konnte nicht geöffnet werden: ${e.toString()}'),
+             duration: Duration(seconds: 3),
+           ),
+         );
+       }
+     }
+   }
+ }
 
 // Globale Liste aller aktiven Tracking-Icons für manuelle Updates
 final Set<_TrackingIconState> _activeTrackingIcons = <_TrackingIconState>{};
