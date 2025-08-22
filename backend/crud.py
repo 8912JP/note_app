@@ -172,7 +172,7 @@ def update_crm_entry(db: Session, entry_id: str, updated_entry: CrmEntryUpdate):
     db.refresh(db_entry)
     return db_entry
 
-def create_crm_entry_from_email(db, anrede, vorname, nachname, mobil, email, nachricht, infos, strasse=None, hausnummer=None, plz=None, ort=None, land=None, informationsgebiet=None, einverstaendnis=None, betreff=None, anfrage_datum=None, kontaktquelle=None):
+def create_crm_entry_from_email(db, anrede, vorname, nachname, mobil, email, nachricht, infos, strasse=None, hausnummer=None, plz=None, ort=None, land=None, informationsgebiet=None, einverstaendnis=None, betreff=None, anfrage_datum=None, kontaktquelle=None, rolle=None):
     # Duplikat-Prüfung: Suche nach ähnlichen Einträgen in den letzten 24 Stunden
     from datetime import datetime, timedelta
     if anfrage_datum:
@@ -211,6 +211,7 @@ def create_crm_entry_from_email(db, anrede, vorname, nachname, mobil, email, nac
         land=land,
         status='Auto Email',
         kontaktquelle=kontaktquelle,
+        rolle=rolle,  # Rolle basierend auf Betreff
         # Keine spezielle Behandlung für bearbeiter_history nötig
     )
     db.add(entry)

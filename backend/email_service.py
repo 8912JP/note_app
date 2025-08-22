@@ -76,6 +76,20 @@ def parse_kontaktquelle_from_betreff(betreff: str) -> str:
         return 'Website EN'
     return ''
 
+def parse_rolle_from_betreff(betreff: str) -> str:
+    """Bestimme die Rolle basierend auf dem Betreff der E-Mail"""
+    if not betreff:
+        return 'Patient'  # Standardwert
+    
+    betreff_lower = betreff.lower()
+    
+    # Prüfe auf "Arzt" im Betreff
+    if 'arzt' in betreff_lower:
+        return 'Arzt'
+    
+    # Alle anderen Fälle → Patient
+    return 'Patient'
+
 def parse_structured_email(body: str, html: str = None) -> dict:
     # HTML-Priorität für Adress- und Personenfelder
     html_fields = {}
@@ -203,6 +217,8 @@ def fetch_and_process_emails():
         fields["anfrage_datum"] = anfrage_datum
         # Kontaktquelle aus Betreff extrahieren
         fields["kontaktquelle"] = parse_kontaktquelle_from_betreff(subject)
+        # Rolle aus Betreff extrahieren
+        fields["rolle"] = parse_rolle_from_betreff(subject)
         print("Extrahierte Felder:", fields)  # Debug-Ausgabe
         create_crm_entry_from_email(db, **fields)
         imap.store(num, '+FLAGS', '\\Seen')
