@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'dart:developer';
-import 'dart:io';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 
 import 'crm_entry.dart';
 import 'api_service.dart';
@@ -118,6 +119,8 @@ class CrmEntryProvider extends ChangeNotifier {
       return ascending ? Comparable.compare(aValue, bValue) : Comparable.compare(bValue, aValue);
     });
     notifyListeners();
+    // Aktualisiere Tracking-Icons nach Sortierung
+    _updateAllTrackingIcons();
   }
 
   void toggleErledigt(String id, bool erledigt) {
@@ -163,6 +166,7 @@ class CRMOverviewPage extends StatefulWidget {
 class CRMOverviewPageState extends State<CRMOverviewPage> {
   void Function(Map<String, dynamic> data)? _notesWsListener;
   DateTimeRange? _selectedDateRange;
+  final TextEditingController _searchController = TextEditingController();
 
   bool _initialized = false; // Damit loadEntries & WS nur einmal starten
 
@@ -188,12 +192,78 @@ class CRMOverviewPageState extends State<CRMOverviewPage> {
       }
     });
     
+    // Registriere spezifischen CRM-Event-Handler
+    WebSocketManager().registerCrmEventHandler(_handleCrmWebSocketEvent);
+    
     // Debug: Zeige WebSocket-Status
     WebSocketManager().testWebSocketConnection();
   }
 
+  void _handleCrmWebSocketEvent(Map<String, dynamic> data) {
+    if (!mounted) return;
+    
+    try {
+      final event = data['event'] as String?;
+      final crmEntryData = data['crm_entry'] as Map<String, dynamic>?;
+      
+      if (event == null) return;
+      
+      print("📥 CRM WebSocket Event: $event");
+      
+      switch (event) {
+        case 'crm_created':
+          if (crmEntryData != null) {
+            // Neuen CRM-Eintrag zur Liste hinzufügen
+            final provider = Provider.of<CrmEntryProvider>(context, listen: false);
+            final newEntry = CrmEntry.fromJson(crmEntryData);
+            
+            // Füge neuen Eintrag hinzu und sortiere
+            provider._entries.add(newEntry);
+            provider._entries.sort((a, b) {
+              final aDate = a.anfrageDatum ?? DateTime(1900);
+              final bDate = b.anfrageDatum ?? DateTime(1900);
+              final dateComparison = bDate.compareTo(aDate);
+              if (dateComparison != 0) return dateComparison;
+              return b.id.compareTo(a.id);
+            });
+            provider.notifyListeners();
+            // Aktualisiere Tracking-Icons nach Sortierung
+            _updateAllTrackingIcons();
+            
+            print("✅ Neuer CRM-Eintrag hinzugefügt: ${newEntry.id}");
+            
+            // Zeige Benachrichtigung
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Neue E-Mail importiert: ${newEntry.vorname} ${newEntry.nachname}'),
+                backgroundColor: Colors.green,
+                duration: Duration(seconds: 3),
+              ),
+            );
+          }
+          break;
+          
+        case 'crm_updated':
+          // Lade alle Einträge neu, um sicherzustellen, dass alle Änderungen sichtbar sind
+          final provider = Provider.of<CrmEntryProvider>(context, listen: false);
+          provider.loadEntries(widget.apiService);
+          break;
+          
+        case 'crm_deleted':
+          // Lade alle Einträge neu
+          final provider = Provider.of<CrmEntryProvider>(context, listen: false);
+          provider.loadEntries(widget.apiService);
+          break;
+      }
+    } catch (e) {
+      print("❌ Fehler beim Verarbeiten des CRM WebSocket Events: $e");
+    }
+  }
+
   @override
   void dispose() {
+    _searchController.dispose();
+    
     // Entferne vom WebSocket-Manager
     WebSocketManager().unregisterCrmUpdater(() {
       if (mounted) {
@@ -201,6 +271,9 @@ class CRMOverviewPageState extends State<CRMOverviewPage> {
         provider.loadEntries(widget.apiService);
       }
     });
+    
+    // Entferne CRM-Event-Handler
+    WebSocketManager().unregisterCrmEventHandler(_handleCrmWebSocketEvent);
     
     super.dispose();
   }
@@ -336,6 +409,8 @@ class CRMOverviewPageState extends State<CRMOverviewPage> {
                 return bDate.compareTo(aDate);
               });
               provider.notifyListeners();
+              // Aktualisiere Tracking-Icons nach Sortierung
+              _updateAllTrackingIcons();
             },
           ),
           IconButton(
@@ -356,13 +431,24 @@ class CRMOverviewPageState extends State<CRMOverviewPage> {
           child: Padding(
             padding: const EdgeInsets.all(8),
             child: TextField(
-              decoration: const InputDecoration(
+              controller: _searchController,
+              decoration: InputDecoration(
                 hintText: 'Suche...',
-                prefixIcon: Icon(Icons.search),
-                border: OutlineInputBorder(),
+                prefixIcon: const Icon(Icons.search),
+                suffixIcon: _searchController.text.isNotEmpty
+                    ? IconButton(
+                        icon: const Icon(Icons.clear),
+                        onPressed: () {
+                          _searchController.clear();
+                          Provider.of<CrmEntryProvider>(context, listen: false).searchText = '';
+                        },
+                      )
+                    : null,
+                border: const OutlineInputBorder(),
               ),
               onChanged: (value) {
                 Provider.of<CrmEntryProvider>(context, listen: false).searchText = value;
+                setState(() {}); // UI aktualisieren für X-Button
               },
             ),
           ),
@@ -619,6 +705,12 @@ class CrmDataSource extends DataTableSource {
                     builder: (_) => FormPage(fromCrmEntry: e),
                   ),
                 );
+              } else if (value == 'email' && e.email?.isNotEmpty == true) {
+                _launchEmail(e.email!, e.nachname, e.titel);
+              } else if (value == 'call_mobile' && e.mobil?.isNotEmpty == true) {
+                _launchPhone(e.mobil!);
+              } else if (value == 'call_landline' && e.festnetz?.isNotEmpty == true) {
+                _launchPhone(e.festnetz!);
               } else if (value == 'delete') {
                 _deleteCrmEntry(context, e);
               }
@@ -638,6 +730,30 @@ class CrmDataSource extends DataTableSource {
                   title: Text('Notiz aus CRM erstellen'),
                 ),
               ),
+              if (e.email?.isNotEmpty == true)
+                PopupMenuItem(
+                  value: 'email',
+                  child: ListTile(
+                    leading: Icon(Icons.email),
+                    title: Text('E-Mail senden'),
+                  ),
+                ),
+              if (e.mobil?.isNotEmpty == true)
+                PopupMenuItem(
+                  value: 'call_mobile',
+                  child: ListTile(
+                    leading: Icon(Icons.phone_android),
+                    title: Text('Mobil anrufen'),
+                  ),
+                ),
+              if (e.festnetz?.isNotEmpty == true)
+                PopupMenuItem(
+                  value: 'call_landline',
+                  child: ListTile(
+                    leading: Icon(Icons.phone),
+                    title: Text('Festnetz anrufen'),
+                  ),
+                ),
               const PopupMenuItem(
                 value: 'delete',
                 child: ListTile(
@@ -734,31 +850,31 @@ class CrmDataSource extends DataTableSource {
        );
      }
     
-    if (mobilText.isNotEmpty) {
-      contactWidgets.add(
-        Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.phone_android, size: 14, color: Colors.grey[600]),
-            SizedBox(width: 4),
-            Expanded(child: _wrapText(mobilText, maxLines: 1)),
-          ],
-        ),
-      );
-    }
-    
-    if (festnetzText.isNotEmpty) {
-      contactWidgets.add(
-        Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.phone, size: 14, color: Colors.grey[600]),
-            SizedBox(width: 4),
-            Expanded(child: _wrapText(festnetzText, maxLines: 1)),
-          ],
-        ),
-      );
-    }
+         if (mobilText.isNotEmpty) {
+       contactWidgets.add(
+         Row(
+           mainAxisSize: MainAxisSize.min,
+           children: [
+             Icon(Icons.phone_android, size: 14, color: Colors.grey[600]),
+             SizedBox(width: 4),
+             Expanded(child: _wrapText(mobilText, maxLines: 1)),
+           ],
+         ),
+       );
+     }
+     
+     if (festnetzText.isNotEmpty) {
+       contactWidgets.add(
+         Row(
+           mainAxisSize: MainAxisSize.min,
+           children: [
+             Icon(Icons.phone, size: 14, color: Colors.grey[600]),
+             SizedBox(width: 4),
+             Expanded(child: _wrapText(festnetzText, maxLines: 1)),
+           ],
+         ),
+       );
+     }
     
     if (contactWidgets.isEmpty) {
       return _wrapText('-');
@@ -769,6 +885,61 @@ class CrmDataSource extends DataTableSource {
        mainAxisSize: MainAxisSize.min,
        children: contactWidgets,
      );
+   }
+
+   // Funktion zum Öffnen des Telefons
+   Future<void> _launchPhone(String phoneNumber) async {
+     try {
+       // Bereinige Telefonnummer (entferne Leerzeichen, Klammern, etc.)
+       final cleanNumber = phoneNumber.replaceAll(RegExp(r'[^\d+]'), '');
+       final telUrl = 'tel:$cleanNumber';
+       
+       print('DEBUG: Tel URL: $telUrl'); // Debug-Ausgabe
+       
+       final uri = Uri.parse(telUrl);
+       
+       // Plattformunabhängige Lösung für alle Browser
+       if (kIsWeb) {
+         // Im Browser: Firefox-spezifische Behandlung für Android
+         try {
+           // Versuche zuerst platformDefault (funktioniert besser in Firefox)
+           await launchUrl(
+             uri,
+             mode: LaunchMode.platformDefault,
+           );
+         } catch (e) {
+           // Fallback 1: Versuche externalApplication
+           try {
+             await launchUrl(
+               uri,
+               mode: LaunchMode.externalApplication,
+             );
+           } catch (e2) {
+             // Fallback 2: Versuche externalNonBrowserApplication
+             await launchUrl(
+               uri,
+               mode: LaunchMode.externalNonBrowserApplication,
+             );
+           }
+         }
+       } else {
+         // Native Apps: Normale Behandlung
+         await launchUrl(
+           uri,
+           mode: LaunchMode.externalApplication,
+         );
+       }
+     } catch (e) {
+       // Fallback: Zeige Snackbar mit Fehlermeldung
+       if (context.mounted) {
+         ScaffoldMessenger.of(context).showSnackBar(
+           SnackBar(
+             content: Text('Telefon konnte nicht geöffnet werden: ${e.toString()}'),
+             duration: Duration(seconds: 3),
+           ),
+         );
+       }
+     }
    }
 
    // Funktion zum Öffnen des E-Mail-Clients
@@ -796,22 +967,49 @@ class CrmDataSource extends DataTableSource {
        
        print('DEBUG: Mailto URL: $mailtoUrl'); // Debug-Ausgabe
        
-       if (Platform.isWindows) {
-         // Windows-spezifische Lösung mit PowerShell (bessere URL-Unterstützung)
-         final result = await Process.run('powershell', ['-Command', 'Start-Process "$mailtoUrl"']);
-         if (result.exitCode != 0) {
-           // Fallback: Versuche mit cmd und Anführungszeichen
-           final fallbackResult = await Process.run('cmd', ['/c', 'start', '""', mailtoUrl]);
-           if (fallbackResult.exitCode != 0) {
-             throw Exception('E-Mail-Client konnte nicht geöffnet werden');
+       // Für alle Plattformen: Verwende url_launcher (funktioniert auch im Browser)
+       final uri = Uri.parse(mailtoUrl);
+       
+       try {
+         final canLaunch = await canLaunchUrl(uri);
+         if (canLaunch) {
+                  // Plattformunabhängige Lösung für alle Browser
+       if (kIsWeb) {
+         // Im Browser: Verwende eine Kombination von Methoden für maximale Kompatibilität
+         try {
+           // Versuche zuerst externalNonBrowserApplication (vermeidet leere Tabs)
+           await launchUrl(
+             uri,
+             mode: LaunchMode.externalNonBrowserApplication,
+           );
+         } catch (e) {
+           // Fallback 1: Versuche externalApplication
+           try {
+             await launchUrl(
+               uri,
+               mode: LaunchMode.externalApplication,
+             );
+           } catch (e2) {
+             // Fallback 2: Verwende platformDefault als letzte Option
+             await launchUrl(
+               uri,
+               mode: LaunchMode.platformDefault,
+             );
            }
          }
        } else {
-         // Fallback für andere Plattformen
-         final result = await Process.run('xdg-open', [mailtoUrl]);
-         if (result.exitCode != 0) {
+         // Native Apps: Normale Behandlung
+         await launchUrl(
+           uri,
+           mode: LaunchMode.externalApplication,
+         );
+       }
+         } else {
            throw Exception('E-Mail-Client konnte nicht geöffnet werden');
          }
+       } catch (e) {
+         // Fallback nur bei echtem Fehler
+         throw Exception('Fehler beim Öffnen des E-Mail-Clients: $e');
        }
      } catch (e) {
        // Fallback: Zeige Snackbar mit Fehlermeldung

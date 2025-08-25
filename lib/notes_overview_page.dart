@@ -28,6 +28,7 @@ class _NotesOverviewPageState extends State<NotesOverviewPage> {
   // Vereinfachte Event-Verarbeitung: keine Buffer/Debounce
   final Set<int> _updatingNoteIds = <int>{};
   bool _wsListenersAdded = false;
+  final TextEditingController _searchController = TextEditingController();
 
   // Filter-States
   String _searchText = "";
@@ -209,6 +210,8 @@ class _NotesOverviewPageState extends State<NotesOverviewPage> {
 
   @override
   void dispose() {
+    _searchController.dispose();
+    
     // Entferne vom WebSocket-Manager
     WebSocketManager().unregisterNotesFullReloadUpdater(_loadNotes);
     WebSocketManager().unregisterNotesUpdater(_handleNoteUpdate);
@@ -778,27 +781,39 @@ class _NotesOverviewPageState extends State<NotesOverviewPage> {
       appBar: AppBar(
         title: const Text("Notizen Übersicht"),
         bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(80),
+          preferredSize: const Size.fromHeight(56),
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: Column(
+            padding: const EdgeInsets.all(8),
+            child: Row(
               children: [
-                TextField(
-                  decoration: const InputDecoration(
-                    hintText: 'Suche in Notizen...',
-                    prefixIcon: Icon(Icons.search),
-                    border: OutlineInputBorder(),
+                Expanded(
+                  child: TextField(
+                    controller: _searchController,
+                    decoration: InputDecoration(
+                      hintText: 'Suche in Notizen...',
+                      prefixIcon: const Icon(Icons.search),
+                      suffixIcon: _searchController.text.isNotEmpty
+                          ? IconButton(
+                              icon: const Icon(Icons.clear),
+                              onPressed: () {
+                                _searchController.clear();
+                                setState(() {
+                                  _searchText = "";
+                                });
+                              },
+                            )
+                          : null,
+                      border: const OutlineInputBorder(),
+                    ),
+                    onChanged: (value) => setState(() {
+                      _searchText = value.toLowerCase();
+                    }),
                   ),
-                  onChanged: (value) => setState(() {
-                    _searchText = value.toLowerCase();
-                  }),
                 ),
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: IconButton(
-                    icon: const Icon(Icons.filter_list),
-                    onPressed: _showFilterDialog,
-                  ),
+                const SizedBox(width: 8),
+                IconButton(
+                  icon: const Icon(Icons.filter_list),
+                  onPressed: _showFilterDialog,
                 ),
               ],
             ),

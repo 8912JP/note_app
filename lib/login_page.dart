@@ -82,6 +82,7 @@ class _LoginPageState extends State<LoginPage> {
               controller: _passwordController,
               decoration: const InputDecoration(labelText: 'Passwort'),
               obscureText: true,
+              onSubmitted: (_) => _login(),
             ),
 
             Row(

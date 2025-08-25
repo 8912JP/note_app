@@ -349,6 +349,22 @@ class WebSocketManager {
     _dlog("📡 CRM Updater entfernt");
   }
 
+  // Registriere spezifischen CRM-Event-Handler
+  void registerCrmEventHandler(Function(Map<String, dynamic>) handler) {
+    registerEventHandler('crm_created', handler);
+    registerEventHandler('crm_updated', handler);
+    registerEventHandler('crm_deleted', handler);
+    _dlog("📡 CRM-Event-Handler registriert");
+  }
+
+  // Entferne spezifischen CRM-Event-Handler
+  void unregisterCrmEventHandler(Function(Map<String, dynamic>) handler) {
+    unregisterEventHandler('crm_created', handler);
+    unregisterEventHandler('crm_updated', handler);
+    unregisterEventHandler('crm_deleted', handler);
+    _dlog("📡 CRM-Event-Handler entfernt");
+  }
+
   // Registriere Notes Updater für spezifische Updates
   void registerNotesUpdater(Function(Map<String, dynamic>) updater) {
     _notesUpdaters.add(updater);

@@ -17,6 +17,7 @@ class _GroupedNotesPageState extends State<GroupedNotesPage> {
   late ApiService apiService;
   List<List<Note>> groupedNotes = [];
   Map<String, bool> expansionState = {};
+  final TextEditingController _searchController = TextEditingController();
 
   String _searchText = "";
   String _selectedStatus = "all";
@@ -109,6 +110,8 @@ class _GroupedNotesPageState extends State<GroupedNotesPage> {
 
   @override
   void dispose() {
+    _searchController.dispose();
+    
     // Entferne vom WebSocket-Manager (stabile Referenzen)
     WebSocketManager().unregisterNotesFullReloadUpdater(_loadNotes);
     WebSocketManager().unregisterNotesUpdater(_handleNoteUpdate);
@@ -327,10 +330,20 @@ class _GroupedNotesPageState extends State<GroupedNotesPage> {
           child: Padding(
             padding: const EdgeInsets.all(8),
             child: TextField(
-              decoration: const InputDecoration(
+              controller: _searchController,
+              decoration: InputDecoration(
                 hintText: 'Suche...',
-                prefixIcon: Icon(Icons.search),
-                border: OutlineInputBorder(),
+                prefixIcon: const Icon(Icons.search),
+                suffixIcon: _searchController.text.isNotEmpty
+                    ? IconButton(
+                        icon: const Icon(Icons.clear),
+                        onPressed: () {
+                          _searchController.clear();
+                          setState(() => _searchText = "");
+                        },
+                      )
+                    : null,
+                border: const OutlineInputBorder(),
               ),
               onChanged: (v) => setState(() => _searchText = v),
             ),

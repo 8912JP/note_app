@@ -12,6 +12,7 @@ from database import SessionLocal
 from crud import create_crm_entry_from_email
 from sqlalchemy.exc import SQLAlchemyError
 from dotenv import load_dotenv
+from models import CrmEntry  # Korrigierter Import aus models.py
 
 # .env laden
 load_dotenv()
@@ -391,10 +392,37 @@ class EmailScheduler:
         try:
             db = SessionLocal()
             
+            # E-Mail-Message-ID extrahieren (für Duplikat-Schutz)
+            status, msg_data = mail.fetch(email_id, '(RFC822)')
+            if status != 'OK':
+                logger.error(f"Fehler beim Abrufen der E-Mail {email_id}")
+                return
+                
+            email_body = msg_data[0][1]
+            email_message = email.message_from_bytes(email_body)
+            
+            # Message-ID extrahieren
+            message_id = email_message.get('Message-ID', '')
+            if message_id:
+                message_id = message_id.strip('<>')  # Entferne < > Klammern
+            
+            # Prüfe auf Duplikat basierend auf Message-ID
+            if message_id:
+                existing_entry = db.query(CrmEntry).filter(
+                    CrmEntry.email_message_id == message_id
+                ).first()
+                
+                if existing_entry:
+                    logger.warning(f"⚠️ Duplikat gefunden (Message-ID): E-Mail {message_id} bereits verarbeitet")
+                    # E-Mail trotzdem als gelesen markieren
+                    mail.store(email_id, '+FLAGS', '\\Seen')
+                    return
+            
             # Strukturierte E-Mail-Daten extrahieren
             fields = parse_structured_email(body, html)
             fields["betreff"] = subject
             fields["anfrage_datum"] = anfrage_datum or datetime.now()
+            fields["email_message_id"] = message_id  # Message-ID hinzufügen
             
             # Kontaktquelle aus Betreff extrahieren
             fields["kontaktquelle"] = parse_kontaktquelle_from_betreff(subject)
@@ -407,7 +435,7 @@ class EmailScheduler:
             # E-Mail als gelesen markieren
             mail.store(email_id, '+FLAGS', '\\Seen')
             
-            logger.info(f"CRM-Eintrag aus E-Mail erstellt: {subject} ({fields.get('email', 'Keine E-Mail')})")
+            logger.info(f"CRM-Eintrag aus E-Mail erstellt: {subject} ({fields.get('email', 'Keine E-Mail')}) - Message-ID: {message_id}")
             
         except Exception as e:
             logger.error(f"Fehler beim Umwandeln der E-Mail in CRM-Eintrag: {e}")

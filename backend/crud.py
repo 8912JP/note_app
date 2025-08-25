@@ -172,24 +172,65 @@ def update_crm_entry(db: Session, entry_id: str, updated_entry: CrmEntryUpdate):
     db.refresh(db_entry)
     return db_entry
 
-def create_crm_entry_from_email(db, anrede, vorname, nachname, mobil, email, nachricht, infos, strasse=None, hausnummer=None, plz=None, ort=None, land=None, informationsgebiet=None, einverstaendnis=None, betreff=None, anfrage_datum=None, kontaktquelle=None, rolle=None):
-    # Duplikat-Prüfung: Suche nach ähnlichen Einträgen in den letzten 24 Stunden
+def create_crm_entry_from_email(db, anrede, vorname, nachname, mobil, email, nachricht, infos, strasse=None, hausnummer=None, plz=None, ort=None, land=None, informationsgebiet=None, einverstaendnis=None, betreff=None, anfrage_datum=None, kontaktquelle=None, email_message_id=None):
+    # Verbesserte Duplikat-Prüfung: Suche nach ähnlichen Einträgen
     from datetime import datetime, timedelta
-    if anfrage_datum:
-        # Prüfe Einträge mit gleichem Betreff und ähnlichem Datum (±1 Stunde)
-        time_window_start = anfrage_datum - timedelta(hours=1)
-        time_window_end = anfrage_datum + timedelta(hours=1)
-        
+    
+    # Prüfe zuerst auf Message-ID (eindeutigster Indikator)
+    if email_message_id:
         existing_entry = db.query(CrmEntry).filter(
-            CrmEntry.betreff == betreff,
-            CrmEntry.email == email,
-            CrmEntry.anfrage_datum >= time_window_start,
-            CrmEntry.anfrage_datum <= time_window_end
+            CrmEntry.email_message_id == email_message_id
         ).first()
         
         if existing_entry:
-            print(f"⚠️ Duplikat gefunden: E-Mail '{betreff}' von {email} bereits verarbeitet")
-            return existing_entry  # Gib bestehenden Eintrag zurück
+            print(f"⚠️ Duplikat gefunden (Message-ID): E-Mail {email_message_id} bereits verarbeitet")
+            return existing_entry
+    
+    if anfrage_datum:
+        # Erweiterte Zeitfenster-Prüfung (±2 Stunden statt ±1 Stunde)
+        time_window_start = anfrage_datum - timedelta(hours=2)
+        time_window_end = anfrage_datum + timedelta(hours=2)
+        
+        # Prüfe auf Duplikate basierend auf mehreren Kriterien
+        existing_entries = db.query(CrmEntry).filter(
+            CrmEntry.email == email,
+            CrmEntry.anfrage_datum >= time_window_start,
+            CrmEntry.anfrage_datum <= time_window_end
+        ).all()
+        
+        # Wenn E-Mail-Adresse und Zeitfenster übereinstimmen, prüfe weitere Kriterien
+        for existing_entry in existing_entries:
+            # Prüfe auf identischen Betreff
+            if existing_entry.betreff == betreff:
+                print(f"⚠️ Duplikat gefunden (Betreff): E-Mail '{betreff}' von {email} bereits verarbeitet")
+                return existing_entry
+            
+            # Prüfe auf ähnliche Nachricht (erste 50 Zeichen)
+            if (existing_entry.nachricht and nachricht and 
+                existing_entry.nachricht[:50] == nachricht[:50]):
+                print(f"⚠️ Duplikat gefunden (Nachricht): E-Mail von {email} mit ähnlicher Nachricht bereits verarbeitet")
+                return existing_entry
+            
+            # Prüfe auf identische Kontaktdaten (Vorname + Nachname + E-Mail)
+            if (existing_entry.vorname == vorname and 
+                existing_entry.nachname == nachname and 
+                existing_entry.email == email):
+                print(f"⚠️ Duplikat gefunden (Kontaktdaten): E-Mail von {vorname} {nachname} ({email}) bereits verarbeitet")
+                return existing_entry
+    
+    # Zusätzliche Prüfung: Suche nach sehr ähnlichen Einträgen in den letzten 24 Stunden
+    if anfrage_datum:
+        day_start = anfrage_datum - timedelta(hours=24)
+        recent_entries = db.query(CrmEntry).filter(
+            CrmEntry.email == email,
+            CrmEntry.anfrage_datum >= day_start
+        ).all()
+        
+        for recent_entry in recent_entries:
+            # Prüfe auf identische E-Mail-Adresse und ähnlichen Zeitraum
+            if recent_entry.email == email:
+                print(f"⚠️ Mögliches Duplikat: E-Mail von {email} bereits in den letzten 24 Stunden verarbeitet")
+                return recent_entry
     
     entry = CrmEntry(
         id=str(uuid.uuid4()),
@@ -211,12 +252,94 @@ def create_crm_entry_from_email(db, anrede, vorname, nachname, mobil, email, nac
         land=land,
         status='Auto Email',
         kontaktquelle=kontaktquelle,
-        rolle=rolle,  # Rolle basierend auf Betreff
+        email_message_id=email_message_id,  # Message-ID hinzufügen
         # Keine spezielle Behandlung für bearbeiter_history nötig
     )
     db.add(entry)
     db.commit()
     db.refresh(entry)
+    print(f"✅ Neuer CRM-Eintrag erstellt: {betreff} von {email} (Message-ID: {email_message_id})")
+    
+    # WebSocket-Broadcast für neue CRM-Einträge
+    try:
+        # Import hier, um zirkuläre Imports zu vermeiden
+        from main import broadcast_update
+        
+        # Konvertiere CRM-Eintrag zu Dict für JSON-Serialisierung
+        crm_dict = {
+            'id': entry.id,
+            'anfrage_datum': entry.anfrage_datum.isoformat() if entry.anfrage_datum else None,
+            'titel': entry.titel,
+            'vorname': entry.vorname,
+            'nachname': entry.nachname,
+            'email': entry.email,
+            'mobil': entry.mobil,
+            'festnetz': entry.festnetz,
+            'krankheitsstatus': entry.krankheitsstatus,
+            'todos': entry.todos,
+            'status': entry.status,
+            'bearbeiter': entry.bearbeiter,
+            'wiedervorlage': entry.wiedervorlage.isoformat() if entry.wiedervorlage else None,
+            'typ': entry.typ,
+            'stadium': entry.stadium,
+            'kontaktquelle': entry.kontaktquelle,
+            'erledigt': entry.erledigt,
+            'infos': entry.infos,
+            'nachricht': entry.nachricht,
+            'informationsgebiet': entry.informationsgebiet,
+            'einverstaendnis': entry.einverstaendnis,
+            'betreff': entry.betreff,
+            'strasse': entry.strasse,
+            'hausnummer': entry.hausnummer,
+            'plz': entry.plz,
+            'ort': entry.ort,
+            'land': entry.land,
+            'rolle': entry.rolle,
+            'rabatt': entry.rabatt,
+            'krankenversicherung': entry.krankenversicherung,
+            'test': entry.test,
+            'email_message_id': entry.email_message_id,
+            'email_processed_at': entry.email_processed_at.isoformat() if entry.email_processed_at else None,
+        }
+        
+        # Sende WebSocket-Event asynchron
+        import asyncio
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                # Wenn Loop läuft, erstelle Task
+                loop.create_task(broadcast_update({
+                    "event": "crm_created",
+                    "id": entry.id,
+                    "crm_entry": crm_dict,
+                    "user": "email_system",
+                    "timestamp": str(datetime.now())
+                }))
+            else:
+                # Wenn Loop nicht läuft, führe direkt aus
+                asyncio.run(broadcast_update({
+                    "event": "crm_created",
+                    "id": entry.id,
+                    "crm_entry": crm_dict,
+                    "user": "email_system",
+                    "timestamp": str(datetime.now())
+                }))
+        except RuntimeError:
+            # Fallback: Verwende asyncio.run
+            asyncio.run(broadcast_update({
+                "event": "crm_created",
+                "id": entry.id,
+                "crm_entry": crm_dict,
+                "user": "email_system",
+                "timestamp": str(datetime.now())
+            }))
+        
+        print(f"📡 WebSocket-Event gesendet: crm_created für {entry.id}")
+        
+    except Exception as e:
+        print(f"⚠️ Fehler beim WebSocket-Broadcast: {e}")
+        # Fehler beim WebSocket-Broadcast sollte nicht die E-Mail-Verarbeitung stoppen
+    
     return entry
 
 # ============================

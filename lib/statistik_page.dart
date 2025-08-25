@@ -1187,23 +1187,74 @@ class _StatistikPageState extends State<StatistikPage> {
 
   Future<void> _exportExcel() async {
     final excel = excel_pkg.Excel.createExcel();
-    // Rohdaten-Blatt
-    final sheetRaw = excel['Rohdaten'];
+    
+    // 1. Vollständige Rohdaten-Blatt
+    final sheetRaw = excel['Vollständige_Rohdaten'];
     sheetRaw.appendRow([
       excel_pkg.TextCellValue('ID'),
-      excel_pkg.TextCellValue('Datum'),
+      excel_pkg.TextCellValue('Anfrage-Datum'),
+      excel_pkg.TextCellValue('Titel'),
+      excel_pkg.TextCellValue('Vorname'),
+      excel_pkg.TextCellValue('Nachname'),
+      excel_pkg.TextCellValue('Straße'),
+      excel_pkg.TextCellValue('Hausnummer'),
+      excel_pkg.TextCellValue('PLZ'),
+      excel_pkg.TextCellValue('Ort'),
+      excel_pkg.TextCellValue('Land'),
+      excel_pkg.TextCellValue('E-Mail'),
+      excel_pkg.TextCellValue('Mobil'),
+      excel_pkg.TextCellValue('Festnetz'),
+      excel_pkg.TextCellValue('Krankheitsstatus'),
       excel_pkg.TextCellValue('Status'),
+      excel_pkg.TextCellValue('Bearbeiter'),
+      excel_pkg.TextCellValue('Wiedervorlage'),
+      excel_pkg.TextCellValue('Typ'),
+      excel_pkg.TextCellValue('Stadium'),
       excel_pkg.TextCellValue('Kontaktquelle'),
+      excel_pkg.TextCellValue('Nachricht'),
+      excel_pkg.TextCellValue('Infos'),
+      excel_pkg.TextCellValue('Erledigt'),
+      excel_pkg.TextCellValue('Rolle'),
+      excel_pkg.TextCellValue('Rabatt'),
+      excel_pkg.TextCellValue('Krankenversicherung'),
+      excel_pkg.TextCellValue('Test'),
+      excel_pkg.TextCellValue('ToDos'),
     ]);
+    
     for (final e in _entries) {
       sheetRaw.appendRow([
         excel_pkg.TextCellValue(e.id.toString()),
         excel_pkg.TextCellValue(e.anfrageDatum != null ? DateFormat('yyyy-MM-dd', 'de_DE').format(e.anfrageDatum!) : ''),
-        excel_pkg.TextCellValue((e.status ?? '').trim().isEmpty || (e.status ?? '').trim().toLowerCase() == 'unbekannt' ? 'Sonstiges' : (e.status ?? '').trim()),
-        excel_pkg.TextCellValue((e.kontaktquelle ?? '').trim().isEmpty || (e.kontaktquelle ?? '').trim().toLowerCase() == 'unbekannt' ? 'Sonstiges' : (e.kontaktquelle ?? '').trim()),
+        excel_pkg.TextCellValue(e.titel ?? ''),
+        excel_pkg.TextCellValue(e.vorname ?? ''),
+        excel_pkg.TextCellValue(e.nachname ?? ''),
+        excel_pkg.TextCellValue(e.strasse ?? ''),
+        excel_pkg.TextCellValue(e.hausnummer ?? ''),
+        excel_pkg.TextCellValue(e.plz ?? ''),
+        excel_pkg.TextCellValue(e.ort ?? ''),
+        excel_pkg.TextCellValue(e.land ?? ''),
+        excel_pkg.TextCellValue(e.email ?? ''),
+        excel_pkg.TextCellValue(e.mobil ?? ''),
+        excel_pkg.TextCellValue(e.festnetz ?? ''),
+        excel_pkg.TextCellValue(e.krankheitsstatus ?? ''),
+        excel_pkg.TextCellValue(e.status ?? ''),
+        excel_pkg.TextCellValue(e.bearbeiter ?? ''),
+        excel_pkg.TextCellValue(e.wiedervorlage != null ? DateFormat('yyyy-MM-dd', 'de_DE').format(e.wiedervorlage!) : ''),
+        excel_pkg.TextCellValue(e.typ ?? ''),
+        excel_pkg.TextCellValue(e.stadium ?? ''),
+        excel_pkg.TextCellValue(e.kontaktquelle ?? ''),
+        excel_pkg.TextCellValue(e.nachricht ?? ''),
+        excel_pkg.TextCellValue(e.infos ?? ''),
+        excel_pkg.TextCellValue(e.erledigt ? 'Ja' : 'Nein'),
+        excel_pkg.TextCellValue(e.rolle ?? ''),
+        excel_pkg.TextCellValue(e.rabatt ?? ''),
+        excel_pkg.TextCellValue(e.krankenversicherung ?? ''),
+        excel_pkg.TextCellValue(e.test ?? ''),
+        excel_pkg.TextCellValue(e.todoSummary),
       ]);
     }
-    // Statistik-Blatt
+    
+    // 2. Statistik-Blatt (erweitert)
     final sheetStat = excel['Statistik'];
     sheetStat.appendRow([
       excel_pkg.TextCellValue('Kategorie'),
@@ -1211,6 +1262,9 @@ class _StatistikPageState extends State<StatistikPage> {
       excel_pkg.TextCellValue('Anzahl'),
       excel_pkg.TextCellValue('Prozent'),
     ]);
+    
+    final total = _entries.length;
+    
     // Kontaktquellen
     final quelleMap = <String, int>{};
     for (final e in _entries) {
@@ -1218,7 +1272,6 @@ class _StatistikPageState extends State<StatistikPage> {
       if (quelle.isEmpty || quelle.toLowerCase() == 'unbekannt') quelle = 'Sonstiges';
       quelleMap[quelle] = (quelleMap[quelle] ?? 0) + 1;
     }
-    final total = _entries.length;
     for (final k in quelleMap.keys) {
       final value = quelleMap[k] ?? 0;
       final percent = total > 0 ? value / total * 100 : 0.0;
@@ -1229,6 +1282,7 @@ class _StatistikPageState extends State<StatistikPage> {
         excel_pkg.DoubleCellValue(percent),
       ]);
     }
+    
     // Status
     final statusMap = <String, int>{};
     for (final e in _entries) {
@@ -1246,11 +1300,157 @@ class _StatistikPageState extends State<StatistikPage> {
         excel_pkg.DoubleCellValue(percent),
       ]);
     }
+    
+    // Rollen
+    final rolleMap = <String, int>{};
+    for (final e in _entries) {
+      var rolle = (e.rolle ?? '').trim();
+      if (rolle.isEmpty) rolle = 'Nicht angegeben';
+      rolleMap[rolle] = (rolleMap[rolle] ?? 0) + 1;
+    }
+    for (final k in rolleMap.keys) {
+      final value = rolleMap[k] ?? 0;
+      final percent = total > 0 ? value / total * 100 : 0.0;
+      sheetStat.appendRow([
+        excel_pkg.TextCellValue('Rolle'),
+        excel_pkg.TextCellValue(k),
+        excel_pkg.IntCellValue(value),
+        excel_pkg.DoubleCellValue(percent),
+      ]);
+    }
+    
+    // Tests
+    final testMap = <String, int>{};
+    for (final e in _entries) {
+      var test = (e.test ?? '').trim();
+      if (test.isEmpty) test = 'Nicht angegeben';
+      testMap[test] = (testMap[test] ?? 0) + 1;
+    }
+    for (final k in testMap.keys) {
+      final value = testMap[k] ?? 0;
+      final percent = total > 0 ? value / total * 100 : 0.0;
+      sheetStat.appendRow([
+        excel_pkg.TextCellValue('Test'),
+        excel_pkg.TextCellValue(k),
+        excel_pkg.IntCellValue(value),
+        excel_pkg.DoubleCellValue(percent),
+      ]);
+    }
+    
+    // 3. Bearbeiter-Blatt
+    final sheetBearbeiter = excel['Bearbeiter'];
+    sheetBearbeiter.appendRow([
+      excel_pkg.TextCellValue('Bearbeiter'),
+      excel_pkg.TextCellValue('Anzahl_Einträge'),
+      excel_pkg.TextCellValue('Einsender'),
+      excel_pkg.TextCellValue('Nicht_Einsender'),
+      excel_pkg.TextCellValue('Offen'),
+      excel_pkg.TextCellValue('Abschlussquote_%'),
+    ]);
+    
+    final bearbeiterMap = <String, List<CrmEntry>>{};
+    for (final e in _entries) {
+      final bearbeiter = e.bearbeiter ?? 'Unbekannt';
+      bearbeiterMap[bearbeiter] = [...(bearbeiterMap[bearbeiter] ?? []), e];
+    }
+    
+    for (final bearbeiter in bearbeiterMap.keys) {
+      final entries = bearbeiterMap[bearbeiter]!;
+      final totalEntries = entries.length;
+      final einsender = entries.where((e) => (e.status ?? '').toLowerCase().contains('einsender')).length;
+      final nichtEinsender = entries.where((e) => (e.status ?? '').toLowerCase().contains('nicht einsender')).length;
+      final offen = entries.where((e) => (e.status ?? '').toLowerCase().contains('offen')).length;
+      final quote = totalEntries > 0 ? (einsender / totalEntries * 100) : 0.0;
+      
+      sheetBearbeiter.appendRow([
+        excel_pkg.TextCellValue(bearbeiter),
+        excel_pkg.IntCellValue(totalEntries),
+        excel_pkg.IntCellValue(einsender),
+        excel_pkg.IntCellValue(nichtEinsender),
+        excel_pkg.IntCellValue(offen),
+        excel_pkg.DoubleCellValue(quote),
+      ]);
+    }
+    
+    // 4. Monatliche_Analyse-Blatt
+    final sheetMonatlich = excel['Monatliche_Analyse'];
+    sheetMonatlich.appendRow([
+      excel_pkg.TextCellValue('Jahr'),
+      excel_pkg.TextCellValue('Monat'),
+      excel_pkg.TextCellValue('Anzahl_Einträge'),
+      excel_pkg.TextCellValue('Einsender'),
+      excel_pkg.TextCellValue('Nicht_Einsender'),
+      excel_pkg.TextCellValue('Offen'),
+      excel_pkg.TextCellValue('Abschlussquote_%'),
+    ]);
+    
+    final monatlichMap = <String, List<CrmEntry>>{};
+    for (final e in _entries) {
+      if (e.anfrageDatum != null) {
+        final key = '${e.anfrageDatum!.year}-${e.anfrageDatum!.month.toString().padLeft(2, '0')}';
+        monatlichMap[key] = [...(monatlichMap[key] ?? []), e];
+      }
+    }
+    
+    final sortedMonths = monatlichMap.keys.toList()..sort();
+    for (final monthKey in sortedMonths) {
+      final entries = monatlichMap[monthKey]!;
+      final totalEntries = entries.length;
+      final einsender = entries.where((e) => (e.status ?? '').toLowerCase().contains('einsender')).length;
+      final nichtEinsender = entries.where((e) => (e.status ?? '').toLowerCase().contains('nicht einsender')).length;
+      final offen = entries.where((e) => (e.status ?? '').toLowerCase().contains('offen')).length;
+      final quote = totalEntries > 0 ? (einsender / totalEntries * 100) : 0.0;
+      
+      final parts = monthKey.split('-');
+      final year = parts[0];
+      final month = parts[1];
+      
+      sheetMonatlich.appendRow([
+        excel_pkg.TextCellValue(year),
+        excel_pkg.TextCellValue(month),
+        excel_pkg.IntCellValue(totalEntries),
+        excel_pkg.IntCellValue(einsender),
+        excel_pkg.IntCellValue(nichtEinsender),
+        excel_pkg.IntCellValue(offen),
+        excel_pkg.DoubleCellValue(quote),
+      ]);
+    }
+    
+    // 5. Wiedervorlagen-Blatt
+    final sheetWiedervorlage = excel['Wiedervorlagen'];
+    sheetWiedervorlage.appendRow([
+      excel_pkg.TextCellValue('ID'),
+      excel_pkg.TextCellValue('Name'),
+      excel_pkg.TextCellValue('Wiedervorlage_Datum'),
+      excel_pkg.TextCellValue('Status'),
+      excel_pkg.TextCellValue('Bearbeiter'),
+      excel_pkg.TextCellValue('Tage_bis_heute'),
+    ]);
+    
+    final now = DateTime.now();
+    final wiedervorlagen = _entries.where((e) => e.wiedervorlage != null).toList()
+      ..sort((a, b) => (a.wiedervorlage ?? now).compareTo(b.wiedervorlage ?? now));
+    
+    for (final e in wiedervorlagen) {
+      final tage = e.wiedervorlage != null ? now.difference(e.wiedervorlage!).inDays : 0;
+      sheetWiedervorlage.appendRow([
+        excel_pkg.TextCellValue(e.id.toString()),
+        excel_pkg.TextCellValue('${e.vorname ?? ''} ${e.nachname ?? ''}'.trim()),
+        excel_pkg.TextCellValue(DateFormat('yyyy-MM-dd', 'de_DE').format(e.wiedervorlage!)),
+        excel_pkg.TextCellValue(e.status ?? ''),
+        excel_pkg.TextCellValue(e.bearbeiter ?? ''),
+        excel_pkg.IntCellValue(tage),
+      ]);
+    }
+    
     // Speichern
     final dir = await getApplicationDocumentsDirectory();
-    final file = File('${dir.path}/statistik_export_${DateFormat('yyyyMMdd_HHmmss', 'de_DE').format(DateTime.now())}.xlsx');
+    final file = File('${dir.path}/vollständiger_crm_export_${DateFormat('yyyyMMdd_HHmmss', 'de_DE').format(DateTime.now())}.xlsx');
     await file.writeAsBytes(excel.encode()!);
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Excel-Datei gespeichert: ${file.path}')));
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text('Vollständiger CRM-Export gespeichert: ${file.path}'),
+      duration: const Duration(seconds: 5),
+    ));
   }
 
   // Hilfsfunktion für Woche: Mo-So Labels und xAxis

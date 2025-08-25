@@ -87,11 +87,13 @@ class CrmEntry(Base):
     plz = Column(String(20), nullable=True)
     ort = Column(String(100), nullable=True)
     land = Column(String(100), nullable=True)
-    rolle = Column(String(100), nullable=True)
-    rabatt = Column(String(100), nullable=True)  # Neues Feld für Rabatt
-    krankenversicherung = Column(String(100), nullable=True)  # Neues Feld für Krankenversicherung
-    test = Column(String(100), nullable=True)  # Neues Feld für Test (iPrevent, iSelect, etc.)
-    # bearbeiter_history Feld wurde entfernt - alle Bearbeiter werden im bearbeiter-Feld gespeichert
+    rolle = Column(String(50), nullable=True)
+    rabatt = Column(String(100), nullable=True)
+    krankenversicherung = Column(String(100), nullable=True)
+    test = Column(String(100), nullable=True)
+    # Neue Felder für E-Mail-Tracking
+    email_message_id = Column(String(255), nullable=True, index=True)  # E-Mail Message-ID für Duplikat-Schutz
+    email_processed_at = Column(DateTime, default=lambda: datetime.datetime.now(datetime.timezone.utc))  # Zeitpunkt der Verarbeitung
 
 # =======================
 # 📧 Email-Modell entfernt

@@ -8,6 +8,8 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'statistik_page.dart';
 import 'notification_indicator.dart';
 import 'websocket_manager.dart';
+import 'user_menu_widget.dart';
+import 'login_page.dart';
 
 class NotesHomePage extends StatefulWidget {
   final ApiService apiService;
@@ -90,40 +92,18 @@ class _NotesHomePageState extends State<NotesHomePage> with SingleTickerProvider
           ],
         ),
         actions: [
-          // Benutzer-Avatar rechtsbündig
-          Container(
-            margin: const EdgeInsets.only(right: 16),
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            decoration: BoxDecoration(
-              color: Colors.blue[600],
-              borderRadius: BorderRadius.circular(20),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.1),
-                  blurRadius: 4,
-                  offset: const Offset(0, 2),
+          // Benutzer-Menü mit Versionsinformationen
+          UserMenuWidget(
+            username: widget.apiService.loggedInUser,
+            onLogout: () {
+              // Zurück zur Login-Seite
+              Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => LoginPage(apiService: widget.apiService),
                 ),
-              ],
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  Icons.person,
-                  color: Colors.white,
-                  size: 16,
-                ),
-                const SizedBox(width: 6),
-                Text(
-                  widget.apiService.loggedInUser ?? 'Gast',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ],
-            ),
+              );
+            },
           ),
         ],
         bottom: TabBar(

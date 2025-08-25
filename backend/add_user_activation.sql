@@ -16,3 +16,6 @@ SELECT 'Alle neuen Benutzer sind standardmäßig inaktiv' as info;
 SELECT 'Aktivieren Sie Benutzer manuell in HeidiSQL mit: UPDATE users SET is_active = TRUE WHERE username = "benutzername";' as instruction;
 
 
+
+
+
